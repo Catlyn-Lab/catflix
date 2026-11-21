@@ -1,28 +1,19 @@
-import { For, Show } from "solid-js";
-import { createResource } from "solid-js";
+import { createResource, For, Show } from "solid-js";
 import { A, useNavigate } from "@solidjs/router";
 import { clean, rating, year } from "../lib/format";
 import { details, home as fetchHome, type Item, type MediaType } from "../lib/api";
 import { recent } from "../lib/store";
-import { href, Rail, State } from "../components/ui";
+import { phraseOr, t } from "../lib/i18n";
+import { Empty, href, Play, Rail, SkeletonRails, Star, State, Translated } from "../components/ui";
 
-type Rail = { key: string; heading: string; items: Item[] };
+type Rail = { key: string; items: Item[] };
 
-const LABELS: Record<string, string> = {
-  trending_movies: "Trending films",
-  popular_movies: "Popular films",
-  popular_tv: "Popular series",
-  popular_anime: "Popular anime",
-  new_releases: "New releases",
-  action_movies: "Action",
-  scifi_movies: "Science fiction",
-  thriller_movies: "Thriller",
-  comedy_movies: "Comedy",
-  airing_anime: "Airing now",
-};
-
+/** Row titles Catflix knows; anything new from the catalogue is shown as it arrives. */
 const heading = (key: string) =>
-  LABELS[key] ?? key.replace(/_/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
+  phraseOr(
+    `rail.${key}`,
+    key.replace(/_/g, " ").replace(/^\w/, (letter) => letter.toUpperCase()),
+  );
 
 export default function Home() {
   const navigate = useNavigate();
@@ -33,7 +24,6 @@ export default function Home() {
       .filter(([key]) => key !== "success")
       .map(([key, page]) => ({
         key,
-        heading: heading(key),
         items: clean((page as { results?: unknown }).results),
       }))
       .filter((rail) => rail.items.length > 1);
@@ -47,9 +37,7 @@ export default function Home() {
     const out: { type: MediaType; id: string; title?: string; poster?: string | null }[] = [];
     for (const { type, id, record } of recent()) {
       const entry =
-        type === "movie"
-          ? { type: "movie" as const, id }
-          : { type: "tv" as const, id: id.split(":")[0] };
+        type === "movie" ? { type: "movie" as const, id } : { type: "tv" as const, id: id.split(":")[0] };
       const compound = `${entry.type}:${entry.id}`;
       if (!entry.id || seen.has(compound)) continue;
       seen.add(compound);
@@ -90,48 +78,62 @@ export default function Home() {
       })
       .filter((item) => item.title);
 
+  const wide = (url: string) => url.replace("/w500/", "/w1280/").replace("/w780/", "/w1280/");
+
   return (
     <Show
       when={!feed.error}
       fallback={
         <div class="wrap">
           <State error>
-            <strong>Could not reach the catalogue</strong>
+            <strong>{t("home.error")}</strong>
             <span>{String(feed.error?.message ?? feed.error)}</span>
             <button class="btn btn-ghost" onClick={() => void feedCtl.refetch()}>
-              Try again
+              {t("common.retry")}
             </button>
           </State>
         </div>
       }
     >
-      <Show when={!feed.loading} fallback={<State spinner>Loading the catalogue…</State>}>
+      <Show
+        when={!feed.loading}
+        fallback={
+          <>
+            <section class="hero hero-skeleton" aria-hidden="true" />
+            <div class="wrap wrap-rails">
+              <SkeletonRails />
+            </div>
+          </>
+        }
+      >
         <Show when={hero()}>
           {(featured) => (
             <section class="hero">
-              <div
-                class="hero-art"
-                style={
-                  featured().backdrop ?? featured().image
-                    ? {
-                        "background-image": `url("${(featured().backdrop ?? featured().image)!.replace("/w500/", "/w1280/").replace("/w780/", "/w1280/")}")`,
-                      }
-                    : undefined
-                }
-              />
+              <Show when={featured().backdrop ?? featured().image}>
+                {(image) => (
+                  <div class="hero-art" style={{ "background-image": `url("${wide(image())}")` }} />
+                )}
+              </Show>
               <div class="hero-body">
-                <div class="facts">
-                  <span class="chip">{featured().type === "movie" ? "Film" : "Series"}</span>
-                  <Show when={year(featured().year)}>
-                    <span class="dot">{year(featured().year)}</span>
-                  </Show>
-                  <Show when={rating(featured().rating)}>
-                    <span class="dot">★ {rating(featured().rating)}</span>
-                  </Show>
-                </div>
+                <p class="eyebrow">
+                  {t(featured().type === "movie" ? "home.featuredFilm" : "home.featuredSeries")}
+                </p>
                 <h1>{featured().title}</h1>
+                <div class="facts">
+                  <Show when={rating(featured().rating)}>
+                    <span class="score">
+                      <Star /> {rating(featured().rating)}
+                    </span>
+                  </Show>
+                  <Show when={year(featured().year)}>
+                    <span>{year(featured().year)}</span>
+                  </Show>
+                  <span class="chip">{t(featured().type === "movie" ? "common.film" : "common.series")}</span>
+                </div>
                 <Show when={featured().overview}>
-                  <p>{featured().overview}</p>
+                  <p class="hero-overview">
+                    <Translated text={featured().overview} />
+                  </p>
                 </Show>
                 <div class="row-actions">
                   <button
@@ -144,10 +146,10 @@ export default function Home() {
                       )
                     }
                   >
-                    Play
+                    <Play /> {t(featured().type === "movie" ? "home.play" : "home.episodes")}
                   </button>
                   <A class="btn btn-ghost" href={href(featured())}>
-                    Details
+                    {t("home.moreInfo")}
                   </A>
                 </div>
               </div>
@@ -155,24 +157,17 @@ export default function Home() {
           )}
         </Show>
 
-        <div class="wrap">
+        <div class="wrap wrap-rails" data-flush={hero() ? undefined : true}>
           <Show when={resume().length}>
-            <Rail heading="Continue watching" items={resume()} />
+            <Rail heading={t("home.continue")} items={resume()} />
           </Show>
-          <For each={rails()}>{(rail) => <Rail heading={rail.heading} items={rail.items} />}</For>
+          <For each={rails()}>{(rail) => <Rail heading={heading(rail.key)} items={rail.items} />}</For>
 
           <Show when={!rails().length}>
-            <State>
-              <span class="cat">🐈</span>
-              <strong>The catalogue came back empty</strong>
-              <span>The API may be moving between hosts. Try again in a moment.</span>
-            </State>
+            <Empty title={t("home.emptyTitle")} hint={t("home.emptyHint")} />
           </Show>
 
-          <footer class="foot">
-            Catflix — a small, ad-free streaming app. Metadata courtesy of TMDB; films belong to their
-            rights holders.
-          </footer>
+          <footer class="foot">{t("home.footer")}</footer>
         </div>
       </Show>
     </Show>

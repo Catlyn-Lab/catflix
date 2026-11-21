@@ -7,6 +7,10 @@ export type Prefs = {
   preferredHeight?: number;
   volume?: number;
   muted?: boolean;
+  /** Interface, description and subtitle language. Unset until the first-run question is answered. */
+  language?: "en" | "id";
+  /** True once the viewer has switched subtitles off; they stay off until picked again. */
+  subtitlesOff?: boolean;
 };
 
 export type WatchRecord = {

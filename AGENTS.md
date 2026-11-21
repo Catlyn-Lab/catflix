@@ -23,8 +23,10 @@ It is a first-party app, not a website wrapper:
 
 Catflix's catalogue and playback API are served from a small set of interchangeable HTTPS hosts
 listed in `src/lib/api.ts`, with automatic failover between them. That is the whole of the
-third-party involvement: a content/playback JSON API. Nothing else is loaded at runtime, and no
-credentials are required. Titles stream as HLS through the API's proxy, so the app never hands
+third-party involvement: a content/playback JSON API. The one addition is description
+translation for Indonesian, which calls a public translation endpoint, also from
+`src/lib/api.ts`. Nothing else is loaded at runtime, and no credentials are required. Titles
+stream as HLS through the API's proxy, so the app never hands
 the user off to an external player or site.
 
 If a change is about *how Catflix behaves*, it is a Catflix change. Only touch the host list or
@@ -48,6 +50,12 @@ Keep user-facing text and docs about Catflix, not about whoever supplies the bac
 - `src/lib/api.ts` — the only module that knows hosts and endpoints. Keep it that way.
 - `src/lib/store.ts` — local preferences and "continue watching". Local only; nothing is sent
   to a server. `src/lib/format.ts` — labels, proxy URL builder, formatting.
+- `src/lib/i18n.ts` — the language preference and every interface string in English and
+  Indonesian. New copy goes there as a phrase, never inline in a component.
+  `src/lib/translate.ts` — cached translation of catalogue descriptions (`<Translated>`).
+- `src/lib/device.ts` — desktop, touch or television, decided once at start-up (`?tv=1` forces
+  television). `src/lib/spatial.ts` — arrow-key focus movement for remotes.
+  `src/lib/captions.ts` — parses subtitle files; the player draws the cues itself.
 - `src-tauri/` — the desktop shell (window, CSP, bundle metadata).
 
 `docs/api.md` documents the endpoints and response shapes.
@@ -58,6 +66,11 @@ Keep user-facing text and docs about Catflix, not about whoever supplies the bac
 - TypeScript strict, Prettier (`.prettierrc`), 2-space indent, double quotes.
 - Styles in `src/styles.css` with the existing class names and CSS variables; follow the dark
   theme.
+- Size things in `rem`, not `px`: the television layout works by raising the root font size.
+  Check a change at phone width, at desktop width and with `?tv=1`.
+- Every control must be reachable and visibly focused with the keyboard alone; remotes rely on it.
+- Fonts (Bricolage Grotesque for display, Onest for text) are bundled from `@fontsource-variable`
+  packages. Do not load fonts or anything else from a CDN — the CSP forbids it.
 - Keep the CSP in `src-tauri/tauri.conf.json` narrow: `https:` only for images, media and
   connect, never `unsafe-eval` for scripts.
 - Errors are user-readable sentences, not stack traces.

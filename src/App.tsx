@@ -1,23 +1,68 @@
 import { A, Route, useLocation, useNavigate, type RouteSectionProps } from "@solidjs/router";
-import { createSignal, onMount } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import Home from "./pages/Home";
 import Browse from "./pages/Browse";
 import SearchPage from "./pages/Search";
 import Detail from "./pages/Detail";
 import { WatchEpisode, WatchMovie } from "./pages/Watch";
-import { Cat, Search } from "./components/ui";
+import { Cat, FilmIcon, Globe, HomeIcon, LanguageDialog, Search, SeriesIcon } from "./components/ui";
+import { usesDpad } from "./lib/device";
+import { language, languageChosen, t } from "./lib/i18n";
+import { installSpatialNavigation } from "./lib/spatial";
 
 function Shell(props: RouteSectionProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [typed, setTyped] = createSignal("");
+  const [scrolled, setScrolled] = createSignal(false);
+  const [askLanguage, setAskLanguage] = createSignal(false);
+  const languageOpen = () => askLanguage() || !languageChosen();
+  let main!: HTMLElement;
+
+  const inPlayer = () => location.pathname.startsWith("/watch/");
+  const section = () => {
+    const path = location.pathname;
+    if (path === "/") return "home";
+    if (path.startsWith("/film") || path.startsWith("/movie")) return "films";
+    if (path.startsWith("/series")) return "series";
+    if (path.startsWith("/search")) return "search";
+    return "";
+  };
+  const current = (name: string) => (section() === name ? "page" : undefined);
 
   onMount(() => {
     // Reuse the remembered API host early so playback is not delayed.
     void import("./lib/api");
+
+    if (usesDpad) {
+      onCleanup(installSpatialNavigation(inPlayer));
+      // The remote's Back button.
+      const onBack = (event: KeyboardEvent) => {
+        if (inPlayer() || event.defaultPrevented) return;
+        const typing = (event.target as HTMLElement | null)?.tagName === "INPUT";
+        if (event.key === "GoBack" || event.key === "BrowserBack" || (event.key === "Escape" && !typing)) {
+          if (location.pathname !== "/") {
+            event.preventDefault();
+            history.back();
+          }
+        }
+      };
+      window.addEventListener("keydown", onBack);
+      onCleanup(() => window.removeEventListener("keydown", onBack));
+    }
   });
 
-  const inPlayer = () => location.pathname.startsWith("/watch/");
+  // Every page starts at its top.
+  createEffect(
+    on(
+      () => location.pathname,
+      () => {
+        main.scrollTop = 0;
+        setScrolled(false);
+      },
+      { defer: true },
+    ),
+  );
 
   const submit = (event: Event) => {
     event.preventDefault();
@@ -28,34 +73,81 @@ function Shell(props: RouteSectionProps) {
   return (
     <>
       {!inPlayer() && (
-        <header class="topbar">
-          <A class="brand" href="/">
-            <Cat /> Cat<b>flix</b>
+        <header class="topbar" data-scrolled={scrolled() || undefined}>
+          <A class="brand" href="/" aria-label="Catflix">
+            <Cat />
+            <span>
+              Cat<b>flix</b>
+            </span>
           </A>
-          <nav class="nav">
-            <A href="/" data-current={location.pathname === "/" || undefined}>
-              Home
+          <nav class="nav" aria-label={t("nav.sections")}>
+            <A href="/" aria-current={current("home")}>
+              {t("nav.home")}
             </A>
-            <A href="/films" data-current={location.pathname.startsWith("/film") || undefined}>
-              Films
+            <A href="/films" aria-current={current("films")}>
+              {t("nav.films")}
             </A>
-            <A href="/series" data-current={location.pathname.startsWith("/series") || undefined}>
-              Series
+            <A href="/series" aria-current={current("series")}>
+              {t("nav.series")}
             </A>
           </nav>
           <span class="spacer" />
-          <form class="searchbox" onSubmit={submit}>
+          <Show when={section() !== "search"}>
+            <form class="searchbox" role="search" onSubmit={submit}>
+              <Search />
+              <input
+                type="search"
+                enterkeyhint="search"
+                placeholder={t("search.placeholder")}
+                value={typed()}
+                onInput={(event) => setTyped(event.currentTarget.value)}
+                aria-label={t("search.label")}
+              />
+            </form>
+          </Show>
+          <A class="icon-btn topbar-search" href="/search" aria-label={t("search.label")}>
             <Search />
-            <input
-              placeholder="Search films and series"
-              value={typed()}
-              onInput={(event) => setTyped(event.currentTarget.value)}
-              aria-label="Search"
-            />
-          </form>
+          </A>
+          <button class="lang-btn" aria-label={t("nav.language")} onClick={() => setAskLanguage(true)}>
+            <Globe />
+            {language().toUpperCase()}
+          </button>
         </header>
       )}
-      <main class="main">{props.children}</main>
+
+      <main
+        class="main"
+        ref={main}
+        data-player={inPlayer() || undefined}
+        onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 24)}
+      >
+        {props.children}
+      </main>
+
+      {!inPlayer() && (
+        <nav class="tabbar" aria-label={t("nav.sections")}>
+          <A href="/" aria-current={current("home")}>
+            <HomeIcon />
+            <span>{t("nav.home")}</span>
+          </A>
+          <A href="/films" aria-current={current("films")}>
+            <FilmIcon />
+            <span>{t("nav.films")}</span>
+          </A>
+          <A href="/series" aria-current={current("series")}>
+            <SeriesIcon />
+            <span>{t("nav.series")}</span>
+          </A>
+          <A href="/search" aria-current={current("search")}>
+            <Search />
+            <span>{t("nav.search")}</span>
+          </A>
+        </nav>
+      )}
+
+      <Show when={languageOpen()}>
+        <LanguageDialog firstRun={!languageChosen()} onClose={() => setAskLanguage(false)} />
+      </Show>
     </>
   );
 }

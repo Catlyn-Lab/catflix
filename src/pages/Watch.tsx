@@ -3,19 +3,37 @@ import { createResource, Show } from "solid-js";
 import { details, season, type Episode } from "../lib/api";
 import { episodeLabel } from "../lib/format";
 import Player from "../components/Player";
-import { Empty, State } from "../components/ui";
+import { t } from "../lib/i18n";
+import { State } from "../components/ui";
+
+function Unavailable(props: { title: string; reason: unknown }) {
+  return (
+    <div class="wrap">
+      <State error>
+        <strong>{props.title}</strong>
+        <span>{String((props.reason as Error)?.message ?? props.reason)}</span>
+        <button class="btn btn-ghost" onClick={() => history.back()}>
+          {t("common.back")}
+        </button>
+      </State>
+    </div>
+  );
+}
 
 /** `#/watch/movie/:id` */
 export function WatchMovie() {
   const params = useParams<{ id: string }>();
-  const [found] = createResource(() => params.id, (id) => details("movie", id));
+  const [found] = createResource(
+    () => params.id,
+    (id) => details("movie", id),
+  );
 
   return (
     <Show
       when={found()}
       fallback={
-        <Show when={found.error} fallback={<State spinner>Preparing…</State>}>
-          <Empty title="Could not open this film" hint={String(found.error?.message ?? found.error)} />
+        <Show when={found.error} fallback={<State spinner>{t("watch.openingFilm")}</State>}>
+          <Unavailable title={t("watch.filmError")} reason={found.error} />
         </Show>
       }
     >
@@ -25,6 +43,7 @@ export function WatchMovie() {
           id={params.id}
           title={item().title}
           poster={item().poster ?? item().backdrop}
+          backdrop={item().backdrop}
           subtitle={item().year ?? undefined}
         />
       )}
@@ -54,8 +73,8 @@ export function WatchEpisode() {
     <Show
       when={found()}
       fallback={
-        <Show when={found.error} fallback={<State spinner>Preparing the episode…</State>}>
-          <Empty title="Could not open this episode" hint={String(found.error?.message ?? found.error)} />
+        <Show when={found.error} fallback={<State spinner>{t("watch.openingEpisode")}</State>}>
+          <Unavailable title={t("watch.episodeError")} reason={found.error} />
         </Show>
       }
     >
@@ -65,6 +84,7 @@ export function WatchEpisode() {
           id={params.seriesId}
           title={data().show.title}
           poster={data().show.poster ?? data().show.backdrop}
+          backdrop={data().show.backdrop}
           subtitle={`${episodeLabel(seasonNumber(), episodeNumber())} · ${(data().episode as Episode).name ?? "Episode"}`}
           seasonNumber={seasonNumber()}
           episodeNumber={episodeNumber()}

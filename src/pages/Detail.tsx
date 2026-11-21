@@ -3,18 +3,24 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { clean, episodeLabel, rating, runtime, year } from "../lib/format";
 import { details, season as fetchSeason, type Episode, type MediaType } from "../lib/api";
 import { getProgress } from "../lib/store";
-import { Card, Empty, Play, State } from "../components/ui";
+import { genreName, language, seasonName, t } from "../lib/i18n";
+import { Card, Empty, Play, Star, State, Translated } from "../components/ui";
 
 type Props = { type: MediaType; id: string };
 
+const percent = (record: { positionSeconds: number; durationSeconds: number }) =>
+  Math.min(99, Math.round((record.positionSeconds / Math.max(1, record.durationSeconds)) * 100));
+
 export default function Detail(props: Props) {
   const navigate = useNavigate();
-  const [found] = createResource(() => ({ type: props.type, id: props.id }), (query) =>
-    details(query.type, query.id),
+  const [found] = createResource(
+    () => ({ type: props.type, id: props.id }),
+    (query) => details(query.type, query.id),
   );
 
   const [activeSeason, setActiveSeason] = createSignal<number | null>(null);
-  const seasonNumber = () => activeSeason() ?? found()?.seasons?.find((entry) => entry.season_number > 0)?.season_number ?? 1;
+  const seasonNumber = () =>
+    activeSeason() ?? found()?.seasons?.find((entry) => entry.season_number > 0)?.season_number ?? 1;
 
   const [episodesList] = createResource(
     () => (props.type === "tv" ? { id: props.id, season: seasonNumber() } : null),
@@ -24,20 +30,39 @@ export default function Detail(props: Props) {
   const facts = createMemo(() => {
     const item = found();
     if (!item) return [];
-    return [year(item.release_date), runtime(item.runtime), rating(item.rating) && `★ ${rating(item.rating)}`, item.genres?.join(", ")]
-      .filter(Boolean) as string[];
+    const seasons = item.number_of_seasons;
+    return [
+      year(item.release_date ?? item.year),
+      // Indonesian abbreviates hours as "j" (jam).
+      language() === "id" ? runtime(item.runtime).replace("h", "j") : runtime(item.runtime),
+      props.type === "tv" && seasons
+        ? seasons === 1
+          ? t("detail.seasonsOne")
+          : t("detail.seasons", { count: seasons })
+        : "",
+    ].filter(Boolean) as string[];
   });
 
-  const nextUp = () => {
-    const list = episodesList() ?? [];
-    const started = list.find((episode) => getProgress("episode", String(episode.id)));
-    return started ?? list[0];
-  };
+  // The player keeps one record per episode, keyed by series, season and episode number.
+  const watchedEpisode = (episode: Episode) =>
+    getProgress("episode", `${props.id}:${episode.season_number}:${episode.episode_number}`);
+  const watchedFilm = () => (props.type === "movie" ? getProgress("movie", props.id) : null);
+
+  const started = () => (episodesList() ?? []).find((episode) => watchedEpisode(episode));
+  const nextUp = () => started() ?? (episodesList() ?? [])[0];
 
   const play = (episode?: Episode) => {
     if (props.type === "movie") return void navigate(`/watch/movie/${props.id}`);
     const target = episode ?? nextUp();
     if (target) navigate(`/watch/episode/${props.id}/${target.season_number}/${target.episode_number}`);
+  };
+
+  const playLabel = () => {
+    if (props.type === "movie") return watchedFilm() ? t("detail.resume") : t("detail.play");
+    const target = nextUp();
+    if (!target) return t("detail.play");
+    const code = episodeLabel(target.season_number, target.episode_number);
+    return t(started() ? "detail.resumeCode" : "detail.playCode", { code });
   };
 
   return (
@@ -46,38 +71,70 @@ export default function Detail(props: Props) {
       fallback={
         <div class="wrap">
           <State error>
-            <strong>Could not load this title</strong>
+            <strong>{t("detail.error")}</strong>
             <span>{String(found.error?.message ?? found.error)}</span>
-            <A class="btn btn-ghost" href="/">Back home</A>
+            <A class="btn btn-ghost" href="/">
+              {t("detail.backHome")}
+            </A>
           </State>
         </div>
       }
     >
-      <Show when={found()} fallback={<State spinner>Loading…</State>}>
+      <Show
+        when={found()}
+        fallback={
+          <div class="wrap">
+            <State spinner>{t("common.loading")}</State>
+          </div>
+        }
+      >
         {(item) => (
           <>
             <section class="detail detail-hero">
-              <Show when={item().backdrop}>
-                <div class="detail-art" style={{ "background-image": `url("${item().backdrop}")` }} />
+              <Show when={item().backdrop ?? item().poster}>
+                {(image) => <div class="detail-art" style={{ "background-image": `url("${image()}")` }} />}
               </Show>
 
               <div class="detail-grid">
-                <div class="detail-poster" style={item().poster ? { "background-image": `url("${item().poster}")` } : undefined} />
+                <div
+                  class="detail-poster"
+                  style={item().poster ? { "background-image": `url("${item().poster}")` } : undefined}
+                />
 
-                <div>
-                  <div class="facts">
-                    <span class="chip">{props.type === "movie" ? "Film" : "Series"}</span>
-                    <For each={facts()}>{(fact) => <span class="dot">{fact}</span>}</For>
-                  </div>
+                <div class="detail-body">
+                  <p class="eyebrow">{t(props.type === "movie" ? "common.film" : "common.series")}</p>
                   <h1>{item().title}</h1>
-                  <Show when={item().tagline}>
-                    <p class="tagline">{item().tagline}</p>
+                  <div class="facts">
+                    <Show when={rating(item().rating)}>
+                      <span class="score">
+                        <Star /> {rating(item().rating)}
+                      </span>
+                    </Show>
+                    <For each={facts()}>{(fact) => <span>{fact}</span>}</For>
+                  </div>
+                  <Show when={(item().genres ?? []).length}>
+                    <div class="genres">
+                      <For each={item().genres}>
+                        {(genre) => <span class="chip">{genreName(genre)}</span>}
+                      </For>
+                    </div>
                   </Show>
-                  <p class="overview">{item().overview}</p>
+                  <Show when={item().tagline}>
+                    <p class="tagline">
+                      <Translated text={item().tagline} />
+                    </p>
+                  </Show>
+                  <p class="overview">
+                    <Translated text={item().overview} />
+                  </p>
 
                   <div class="row-actions">
-                    <button class="btn btn-primary" onClick={() => play()} disabled={props.type === "tv" && !nextUp()}>
-                      <Play /> {props.type === "movie" ? "Play" : "Play first episode"}
+                    <button
+                      class="btn btn-primary"
+                      onClick={() => play()}
+                      disabled={props.type === "tv" && !nextUp()}
+                    >
+                      <Play /> {playLabel()}
                     </button>
                     <Show when={item().trailers?.[0]?.key}>
                       <a
@@ -86,22 +143,19 @@ export default function Detail(props: Props) {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Trailer
+                        {t("detail.trailer")}
                       </a>
                     </Show>
                   </div>
-
-                  <Show when={(item().cast ?? []).length}>
-                    <div class="cast">
-                      <For each={(item().cast ?? []).slice(0, 12)}>
-                        {(person) => (
-                          <span>
-                            {person.name}
-                            {person.character ? ` · ${person.character}` : ""}
-                          </span>
-                        )}
-                      </For>
-                    </div>
+                  <Show when={watchedFilm()}>
+                    {(record) => (
+                      <div
+                        class="resume-bar"
+                        aria-label={t("detail.watched", { percent: percent(record()) })}
+                      >
+                        <i style={{ width: `${percent(record())}%` }} />
+                      </div>
+                    )}
                   </Show>
                 </div>
               </div>
@@ -109,7 +163,7 @@ export default function Detail(props: Props) {
 
             <Show when={props.type === "tv" && (item().seasons ?? []).length}>
               <section class="section">
-                <h2>Episodes</h2>
+                <h2>{t("detail.episodes")}</h2>
                 <div class="tabs">
                   <For each={(item().seasons ?? []).filter((entry) => entry.season_number > 0)}>
                     {(entry) => (
@@ -118,35 +172,56 @@ export default function Detail(props: Props) {
                         data-active={seasonNumber() === entry.season_number || undefined}
                         onClick={() => setActiveSeason(entry.season_number)}
                       >
-                        {entry.name || `Season ${entry.season_number}`}
+                        {seasonName(entry.name, entry.season_number)}
                       </button>
                     )}
                   </For>
                 </div>
 
-                <Show when={!episodesList.error} fallback={<State error>Could not load episodes.</State>}>
-                  <Show when={!episodesList.loading} fallback={<State spinner>Loading episodes…</State>}>
-                    <Show when={episodesList()?.length} fallback={<Empty title="No episodes for this season" />}>
+                <Show when={!episodesList.error} fallback={<State error>{t("detail.episodesError")}</State>}>
+                  <Show
+                    when={!episodesList.loading}
+                    fallback={<State spinner>{t("detail.loadingEpisodes")}</State>}
+                  >
+                    <Show when={episodesList()?.length} fallback={<Empty title={t("detail.noEpisodes")} />}>
                       <div class="episodes">
                         <For each={episodesList()!}>
                           {(episode) => {
-                            const watched = () => getProgress("episode", String(episode.id));
+                            const watched = () => watchedEpisode(episode);
                             return (
                               <button class="episode" onClick={() => play(episode)}>
-                                <div
-                                  class="still"
-                                  style={episode.still ? { "background-image": `url("${episode.still}")` } : undefined}
-                                />
-                                <div>
-                                  <div class="code">{episodeLabel(episode.season_number, episode.episode_number)}</div>
-                                  <strong>{episode.name || `Episode ${episode.episode_number}`}</strong>
-                                  <p>{episode.overview}</p>
-                                </div>
-                                <Show when={watched()}>
-                                  <span class="watched">
-                                    {Math.min(99, Math.round((watched()!.positionSeconds / Math.max(1, watched()!.durationSeconds)) * 100))}% watched
+                                <div class="still">
+                                  <Show when={episode.still}>
+                                    <img src={episode.still!} alt="" loading="lazy" decoding="async" />
+                                  </Show>
+                                  <span class="still-play">
+                                    <Play />
                                   </span>
-                                </Show>
+                                  <Show when={watched()}>
+                                    <div class="progress">
+                                      <i style={{ width: `${percent(watched()!)}%` }} />
+                                    </div>
+                                  </Show>
+                                </div>
+                                <div class="episode-text">
+                                  <div class="code">
+                                    {t("detail.episode", { number: episode.episode_number })}
+                                    <Show when={watched()}>
+                                      <span class="watched">
+                                        {" "}
+                                        · {t("detail.watched", { percent: percent(watched()!) })}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                  <strong>
+                                    {episode.name || t("detail.episode", { number: episode.episode_number })}
+                                  </strong>
+                                  <Show when={episode.overview}>
+                                    <p>
+                                      <Translated text={episode.overview} />
+                                    </p>
+                                  </Show>
+                                </div>
                               </button>
                             );
                           }}
@@ -158,9 +233,32 @@ export default function Detail(props: Props) {
               </section>
             </Show>
 
+            <Show when={(item().cast ?? []).length}>
+              <section class="section">
+                <h2>{t("detail.cast")}</h2>
+                <div class="cast">
+                  <For each={(item().cast ?? []).slice(0, 16)}>
+                    {(person) => (
+                      <div class="person">
+                        <div class="avatar">
+                          <Show when={person.profile} fallback={<span>{person.name.slice(0, 1)}</span>}>
+                            <img src={person.profile!} alt="" loading="lazy" decoding="async" />
+                          </Show>
+                        </div>
+                        <strong>{person.name}</strong>
+                        <Show when={person.character}>
+                          <span>{person.character}</span>
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </section>
+            </Show>
+
             <Show when={clean(item().similar ?? item().recommendations ?? []).length}>
               <section class="section">
-                <h2>You might also like</h2>
+                <h2>{t("detail.more")}</h2>
                 <div class="grid">
                   <For each={clean(item().similar ?? item().recommendations ?? []).slice(0, 12)}>
                     {(entry) => <Card item={entry} />}
@@ -169,7 +267,7 @@ export default function Detail(props: Props) {
               </section>
             </Show>
 
-            <footer class="foot">Plays in Catflix, without ads.</footer>
+            <footer class="foot">{t("detail.footer")}</footer>
           </>
         )}
       </Show>

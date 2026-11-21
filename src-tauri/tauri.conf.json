@@ -16,10 +16,10 @@
         "title": "Catflix",
         "width": 1380,
         "height": 880,
-        "minWidth": 940,
-        "minHeight": 600,
+        "minWidth": 380,
+        "minHeight": 560,
         "theme": "Dark",
-        "backgroundColor": "#0b0d12"
+        "backgroundColor": "#09080f"
       }
     ],
     "security": {

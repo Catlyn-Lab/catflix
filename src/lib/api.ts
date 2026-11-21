@@ -222,3 +222,47 @@ export const availability = (type: MediaType, id: string, provider: string) =>
   get<{ available: boolean; provider?: string; sources?: number; status?: string }>(
     `/api/stream/check?${params({ type, id, provider })}`,
   );
+
+/* ----------------------------------------------------------- translation */
+
+/**
+ * The catalogue only speaks English, so descriptions are translated on request. Two public,
+ * keyless services are tried in turn; both answer with CORS headers.
+ */
+const TRANSLATORS: ((text: string, to: string) => Promise<string>)[] = [
+  async (text, to) => {
+    const query = params({ client: "gtx", sl: "en", tl: to, dt: "t", q: text });
+    const response = await attempt(`https://translate.googleapis.com/translate_a/single?${query}`);
+    if (!response.ok) throw new ApiError(`translation answered ${response.status}`, response.status);
+    const payload = (await response.json()) as [[string, string][]];
+    return payload[0].map((segment) => segment[0]).join("");
+  },
+  async (text, to) => {
+    // This service takes at most 500 characters per request.
+    if (text.length > 500) throw new ApiError("text too long for the fallback translator", 0);
+    const query = params({ langpair: `en|${to}`, q: text });
+    const response = await attempt(`https://api.mymemory.translated.net/get?${query}`);
+    if (!response.ok) throw new ApiError(`translation answered ${response.status}`, response.status);
+    const payload = (await response.json()) as {
+      responseStatus: number;
+      responseData?: { translatedText?: string };
+    };
+    const result = payload.responseData?.translatedText;
+    if (payload.responseStatus !== 200 || !result) throw new ApiError("translation unavailable", 0);
+    return result;
+  },
+];
+
+/** Translate English text into another language. Rejects when no service answers. */
+export async function translate(text: string, to: string): Promise<string> {
+  let lastError: Error = new ApiError("translation unavailable", 0);
+  for (const service of TRANSLATORS) {
+    try {
+      const result = (await service(text, to)).trim();
+      if (result) return result;
+    } catch (error) {
+      lastError = error as Error;
+    }
+  }
+  throw lastError;
+}

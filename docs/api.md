@@ -22,6 +22,20 @@ that failover, not a single hard-coded host. Requests time out after 25 s. All u
 | `GET /api/stream/check?type=&id=&provider=` | Per-provider availability probe |
 | `GET /api/proxy?url=` | CORS/hot-link proxy; wraps stream, image and subtitle URLs |
 
+## Translation
+
+The catalogue ignores language parameters and always answers in English. For Indonesian,
+`translate(text, to)` in `src/lib/api.ts` sends a description to a public, keyless translation
+endpoint and `src/lib/translate.ts` caches the result in local storage:
+
+| Service | Request |
+| --- | --- |
+| Google Translate | `GET https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=id&dt=t&q=` |
+| MyMemory (fallback, 500 characters at most) | `GET https://api.mymemory.translated.net/get?langpair=en\|id&q=` |
+
+Neither is a contracted service: either can rate-limit or change. When both fail the English
+text is shown.
+
 ### Page
 
 ```json
