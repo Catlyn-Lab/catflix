@@ -1,0 +1,33 @@
+/**
+ * The desktop shell's two network helpers (see `src-tauri/src/lib.rs`). Outside the app, in a
+ * plain browser during development, neither exists and callers fall back to the proxy.
+ */
+
+type Internals = { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
+
+const internals = () => (window as unknown as { __TAURI_INTERNALS__?: Internals }).__TAURI_INTERNALS__;
+
+/** True inside the Catflix app. */
+export const isNative = () => internals() !== undefined;
+
+export type NativePage = { status: number; body: string; total: number | null };
+
+/** Read a page or JSON document from a Catflix source the way a browser would. */
+export async function nativeGet(url: string, referer?: string): Promise<NativePage> {
+  const shell = internals();
+  if (!shell) throw new Error("only available in the app");
+  const page = (await shell.invoke("native_get", { url, referer: referer ?? null })) as NativePage;
+  if (page.status >= 400) throw new Error(`the source answered ${page.status}`);
+  return page;
+}
+
+/**
+ * A video file relayed by the app with the referer its host requires. Windows and Android serve
+ * custom schemes as `http://<scheme>.localhost`, macOS and Linux as `<scheme>://localhost`.
+ */
+export function relayedUrl(url: string, referer: string) {
+  const query = new URLSearchParams({ url, referer }).toString();
+  return /Windows|Android/i.test(navigator.userAgent)
+    ? `http://stream.localhost/?${query}`
+    : `stream://localhost/?${query}`;
+}

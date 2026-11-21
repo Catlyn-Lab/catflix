@@ -1,12 +1,28 @@
 import { createResource, For, Show } from "solid-js";
 import { A, useNavigate } from "@solidjs/router";
 import { clean, rating, year } from "../lib/format";
-import { details, home as fetchHome, type Item, type MediaType } from "../lib/api";
+import {
+  details,
+  home as fetchHome,
+  type Details,
+  type ExtraType,
+  type Item,
+  type MediaType,
+} from "../lib/api";
+import { animeDetails, animeList, dramaDetails, dramaList } from "../lib/sources";
 import { recent } from "../lib/store";
 import { phraseOr, t } from "../lib/i18n";
 import { Empty, href, Play, Rail, SkeletonRails, Star, State, Translated } from "../components/ui";
 
 type Rail = { key: string; items: Item[] };
+type TitleType = MediaType | ExtraType;
+
+/** A title's details, from whichever catalogue it belongs to. */
+const lookup = (type: TitleType, id: string): Promise<Details> => {
+  if (type === "anime") return animeDetails(id);
+  if (type === "drama") return dramaDetails(id);
+  return details(type, id);
+};
 
 /** Row titles Catflix knows; anything new from the catalogue is shown as it arrives. */
 const heading = (key: string) =>
@@ -30,14 +46,30 @@ export default function Home() {
 
   const hero = () => feed()?.hero ?? null;
 
-  // Watch records are keyed per film (`movie:<id>`) or per episode (`episode:<id>:<s>:<e>`);
-  // show one card per film or series, newest first.
+  // Anime and dramas come from their own catalogues and get their own rails, so Home shows the
+  // whole of Catflix rather than only its films and series.
+  const [extra] = createResource(async () => {
+    const [anime, drama] = await Promise.all([
+      animeList("trending", 1).catch(() => ({ items: [] as Item[] })),
+      dramaList(1).catch(() => ({ items: [] as Item[] })),
+    ]);
+    return { anime: anime.items.slice(0, 20), drama: drama.items.slice(0, 20) };
+  });
+
+  // Watch records are keyed per film (`movie:<id>`) or per episode
+  // (`episode:<id>:<s>:<e>`, or `episode:anime:<id>:<s>:<e>` and `episode:drama:<id>:<s>:<e>`);
+  // show one card per title, newest first.
   const watched = () => {
     const seen = new Set<string>();
-    const out: { type: MediaType; id: string; title?: string; poster?: string | null }[] = [];
+    const out: { type: TitleType; id: string; title?: string; poster?: string | null }[] = [];
     for (const { type, id, record } of recent()) {
-      const entry =
-        type === "movie" ? { type: "movie" as const, id } : { type: "tv" as const, id: id.split(":")[0] };
+      // `anime:`/`drama:` mark which catalogue an episode belongs to; the id follows it.
+      const [head, ...rest] = id.split(":");
+      const kind = type === "movie" ? "movie" : head === "anime" || head === "drama" ? head : "tv";
+      const entry = {
+        type: kind as TitleType,
+        id: kind === "tv" || kind === "movie" ? id.split(":")[0] : (rest[0] ?? ""),
+      };
       const compound = `${entry.type}:${entry.id}`;
       if (!entry.id || seen.has(compound)) continue;
       seen.add(compound);
@@ -51,9 +83,7 @@ export default function Home() {
   const [filled] = createResource(
     () => watched().filter((entry) => !entry.title || !entry.poster),
     async (missing) => {
-      const found = await Promise.all(
-        missing.map((entry) => details(entry.type, entry.id).catch(() => null)),
-      );
+      const found = await Promise.all(missing.map((entry) => lookup(entry.type, entry.id).catch(() => null)));
       const byKey: Record<string, { title: string; poster?: string | null }> = {};
       found.forEach((info, index) => {
         if (info) {
@@ -162,6 +192,8 @@ export default function Home() {
             <Rail heading={t("home.continue")} items={resume()} />
           </Show>
           <For each={rails()}>{(rail) => <Rail heading={heading(rail.key)} items={rail.items} />}</For>
+          <Rail heading={t("home.animeRail")} items={extra()?.anime ?? []} />
+          <Rail heading={t("home.dramaRail")} items={extra()?.drama ?? []} />
 
           <Show when={!rails().length}>
             <Empty title={t("home.emptyTitle")} hint={t("home.emptyHint")} />

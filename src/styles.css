@@ -2178,7 +2178,8 @@ html[data-device="touch"] .desk {
     z-index: 40;
     height: var(--tab-h);
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    /* Five tabs once anime and dramas joined home, films, series and search. */
+    grid-template-columns: repeat(6, 1fr);
     padding: 0 calc(0.5rem + var(--safe-right)) var(--safe-bottom) calc(0.5rem + var(--safe-left));
     background: rgba(9, 8, 15, 0.86);
     -webkit-backdrop-filter: blur(1.25rem) saturate(1.4);
@@ -2192,8 +2193,9 @@ html[data-device="touch"] .desk {
     align-items: center;
     justify-content: center;
     gap: 0.2rem;
-    font-size: 0.68rem;
+    font-size: 0.62rem;
     font-weight: 600;
+    text-align: center;
     color: var(--text-faint);
   }
 

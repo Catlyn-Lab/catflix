@@ -99,13 +99,15 @@ export function params(input: Record<string, string | number | undefined | null>
 /* ---------------------------------------------------------------- shapes */
 
 export type MediaType = "movie" | "tv";
+/** Browse sections that have their own source — see `sources.ts`. */
+export type ExtraType = "anime" | "drama";
 
 export type Item = {
   id: string;
   title: string;
   overview?: string | null;
   backdrop?: string | null;
-  type: MediaType | "anime";
+  type: MediaType | ExtraType;
   image?: string | null;
   poster?: string | null;
   year?: string | null;
@@ -147,7 +149,7 @@ export type Details = {
   success: boolean;
   id: string;
   title: string;
-  type: MediaType | "anime";
+  type: MediaType | ExtraType;
   tagline?: string | null;
   overview?: string | null;
   poster?: string | null;
@@ -202,8 +204,7 @@ export const discover = (type: MediaType, page: number, genre?: number) =>
 export const search = (query: string, page = 1) =>
   get<Paged<Item>>(`/api/search?${params({ q: query, page })}`);
 
-export const details = (type: MediaType, id: string) =>
-  get<Details>(`/api/details?${params({ type, id })}`);
+export const details = (type: MediaType, id: string) => get<Details>(`/api/details?${params({ type, id })}`);
 
 export const season = (id: string, number: number) =>
   get<Season & { episodes: Episode[] }>(`/api/tv/${id}/season/${number}`);

@@ -2,10 +2,22 @@ import { A, Route, useLocation, useNavigate, type RouteSectionProps } from "@sol
 import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import Home from "./pages/Home";
 import Browse from "./pages/Browse";
+import Anime from "./pages/Anime";
+import Drama from "./pages/Drama";
 import SearchPage from "./pages/Search";
 import Detail from "./pages/Detail";
 import { WatchEpisode, WatchMovie } from "./pages/Watch";
-import { Cat, FilmIcon, Globe, HomeIcon, LanguageDialog, Search, SeriesIcon } from "./components/ui";
+import {
+  Cat,
+  FilmIcon,
+  Globe,
+  HomeIcon,
+  LanguageDialog,
+  LotusIcon,
+  Search,
+  SeriesIcon,
+  SparkleIcon,
+} from "./components/ui";
 import { usesDpad } from "./lib/device";
 import { language, languageChosen, t } from "./lib/i18n";
 import { installSpatialNavigation } from "./lib/spatial";
@@ -25,6 +37,8 @@ function Shell(props: RouteSectionProps) {
     if (path === "/") return "home";
     if (path.startsWith("/film") || path.startsWith("/movie")) return "films";
     if (path.startsWith("/series")) return "series";
+    if (path.startsWith("/anime")) return "anime";
+    if (path.startsWith("/drama")) return "drama";
     if (path.startsWith("/search")) return "search";
     return "";
   };
@@ -90,6 +104,12 @@ function Shell(props: RouteSectionProps) {
             <A href="/series" aria-current={current("series")}>
               {t("nav.series")}
             </A>
+            <A href="/anime" aria-current={current("anime")}>
+              {t("nav.anime")}
+            </A>
+            <A href="/drama" aria-current={current("drama")}>
+              {t("nav.drama")}
+            </A>
           </nav>
           <span class="spacer" />
           <Show when={section() !== "search"}>
@@ -138,6 +158,14 @@ function Shell(props: RouteSectionProps) {
             <SeriesIcon />
             <span>{t("nav.series")}</span>
           </A>
+          <A href="/anime" aria-current={current("anime")}>
+            <SparkleIcon />
+            <span>{t("nav.anime")}</span>
+          </A>
+          <A href="/drama" aria-current={current("drama")}>
+            <LotusIcon />
+            <span>{t("nav.drama")}</span>
+          </A>
           <A href="/search" aria-current={current("search")}>
             <Search />
             <span>{t("nav.search")}</span>
@@ -158,9 +186,13 @@ export default function App() {
       <Route path="/" component={Home} />
       <Route path="/films" component={() => <Browse type="movie" />} />
       <Route path="/series" component={() => <Browse type="tv" />} />
+      <Route path="/anime" component={Anime} />
+      <Route path="/drama" component={Drama} />
       <Route path="/search" component={SearchPage} />
       <Route path="/movie/:id" component={(p) => <Detail type="movie" id={p.params.id ?? ""} />} />
       <Route path="/series/:id" component={(p) => <Detail type="tv" id={p.params.id ?? ""} />} />
+      <Route path="/anime/:id" component={(p) => <Detail type="anime" id={p.params.id ?? ""} />} />
+      <Route path="/drama/:id" component={(p) => <Detail type="drama" id={p.params.id ?? ""} />} />
       <Route path="/watch/movie/:id" component={WatchMovie} />
       <Route path="/watch/episode/:seriesId/:season/:episode" component={WatchEpisode} />
       <Route path="*" component={Home} />
