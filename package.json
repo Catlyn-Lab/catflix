@@ -1,0 +1,23 @@
+{
+  "name": "catflix",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Catflix — a clean, ad-free desktop streaming app",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@solidjs/router": "^0.15.3",
+    "hls.js": "^1.6.13",
+    "solid-js": "^1.9.9"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vite-plugin-solid": "^2.11.9"
+  }
+}
