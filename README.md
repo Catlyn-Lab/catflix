@@ -76,6 +76,16 @@ npm run tauri build
 # dmg:  src-tauri/target/release/bundle/dmg/Catflix_0.1.0_aarch64.dmg
 ```
 
+Android test build (needs the Android SDK and NDK, with `ANDROID_HOME` and `NDK_HOME` set):
+
+```sh
+npx tauri android build --apk --target aarch64 armv7
+# apk: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+```
+
+The APK comes out unsigned; sign it before installing or uploading to Firebase App
+Distribution. The Android package name is `catflix.catlyn.app`.
+
 The app icon source is `app-icon.png` (1024px); regenerate the icon set with `npx tauri icon app-icon.png`.
 
 ## Notes
