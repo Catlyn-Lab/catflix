@@ -1,5 +1,5 @@
 import { A, useNavigate } from "@solidjs/router";
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, on, Show } from "solid-js";
 import { clean, episodeLabel, rating, runtime, year } from "../lib/format";
 import { details, season as fetchSeason, type Episode, type MediaType } from "../lib/api";
 import { getProgress } from "../lib/store";
@@ -18,9 +18,21 @@ export default function Detail(props: Props) {
     (query) => details(query.type, query.id),
   );
 
+  // While another title is loading, the resource still holds the previous one. Show nothing
+  // from it, or the page would sit on the wrong film under the new address.
+  const current = () => (found.loading ? undefined : found());
+
   const [activeSeason, setActiveSeason] = createSignal<number | null>(null);
+  // A season picked on one series does not carry over to the next.
+  createEffect(
+    on(
+      () => `${props.type}:${props.id}`,
+      () => setActiveSeason(null),
+      { defer: true },
+    ),
+  );
   const seasonNumber = () =>
-    activeSeason() ?? found()?.seasons?.find((entry) => entry.season_number > 0)?.season_number ?? 1;
+    activeSeason() ?? current()?.seasons?.find((entry) => entry.season_number > 0)?.season_number ?? 1;
 
   const [episodesList] = createResource(
     () => (props.type === "tv" ? { id: props.id, season: seasonNumber() } : null),
@@ -28,7 +40,7 @@ export default function Detail(props: Props) {
   );
 
   const facts = createMemo(() => {
-    const item = found();
+    const item = current();
     if (!item) return [];
     const seasons = item.number_of_seasons;
     return [
@@ -81,7 +93,7 @@ export default function Detail(props: Props) {
       }
     >
       <Show
-        when={found()}
+        when={current()}
         fallback={
           <div class="wrap">
             <State spinner>{t("common.loading")}</State>

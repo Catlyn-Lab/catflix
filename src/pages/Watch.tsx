@@ -4,7 +4,7 @@ import { details, season, type Episode } from "../lib/api";
 import { episodeLabel } from "../lib/format";
 import Player from "../components/Player";
 import { t } from "../lib/i18n";
-import { State } from "../components/ui";
+import { Back, State } from "../components/ui";
 
 function Unavailable(props: { title: string; reason: unknown }) {
   return (
@@ -16,6 +16,18 @@ function Unavailable(props: { title: string; reason: unknown }) {
           {t("common.back")}
         </button>
       </State>
+    </div>
+  );
+}
+
+/** The wait before the player appears. There is no top bar here, so it carries its own way out. */
+function Opening(props: { children: string }) {
+  return (
+    <div class="opening">
+      <button class="icon-btn" aria-label={t("common.back")} onClick={() => history.back()}>
+        <Back />
+      </button>
+      <State spinner>{props.children}</State>
     </div>
   );
 }
@@ -32,7 +44,7 @@ export function WatchMovie() {
     <Show
       when={found()}
       fallback={
-        <Show when={found.error} fallback={<State spinner>{t("watch.openingFilm")}</State>}>
+        <Show when={found.error} fallback={<Opening>{t("watch.openingFilm")}</Opening>}>
           <Unavailable title={t("watch.filmError")} reason={found.error} />
         </Show>
       }
@@ -58,13 +70,14 @@ export function WatchEpisode() {
   const episodeNumber = () => Number(params.episode);
 
   const [found] = createResource(
-    () => ({ id: params.seriesId, season: seasonNumber() }),
+    // The episode is part of the key: moving to the next one must refresh its name and what follows.
+    () => ({ id: params.seriesId, season: seasonNumber(), episode: episodeNumber() }),
     async (query) => {
       const [show, current] = await Promise.all([details("tv", query.id), season(query.id, query.season)]);
       const episodes = current.episodes ?? [];
-      const episode = episodes.find((entry) => entry.episode_number === episodeNumber());
-      if (!episode) throw new Error(`episode ${episodeNumber()} is not listed`);
-      const following = episodes.find((entry) => entry.episode_number === episodeNumber() + 1);
+      const episode = episodes.find((entry) => entry.episode_number === query.episode);
+      if (!episode) throw new Error(`episode ${query.episode} is not listed`);
+      const following = episodes.find((entry) => entry.episode_number === query.episode + 1);
       return { show, episode, next: following };
     },
   );
@@ -73,7 +86,7 @@ export function WatchEpisode() {
     <Show
       when={found()}
       fallback={
-        <Show when={found.error} fallback={<State spinner>{t("watch.openingEpisode")}</State>}>
+        <Show when={found.error} fallback={<Opening>{t("watch.openingEpisode")}</Opening>}>
           <Unavailable title={t("watch.episodeError")} reason={found.error} />
         </Show>
       }

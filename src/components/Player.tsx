@@ -91,6 +91,11 @@ export default function Player(props: PlayerProps) {
   /** The "no Indonesian subtitles" notice is shown once per title. */
   let fallbackNoticed = false;
   let pendingNotice = "";
+  /** Sources that have already failed since the list was last fetched. */
+  const tried = new Set<string>();
+  /** Where playback stood when the sources were last fetched. */
+  let fetchedAt = 0;
+  let mediaRecoveries = 0;
 
   const [stage, setStage] = createSignal<"loading" | "ready" | "error" | "ended">("loading");
   const [message, setMessage] = createSignal("");
@@ -181,6 +186,7 @@ export default function Player(props: PlayerProps) {
       hls.destroy();
       hls = null;
     }
+    video.onerror = null;
     video.removeAttribute("src");
     video.load();
   };
@@ -196,10 +202,30 @@ export default function Player(props: PlayerProps) {
     setAudio(hls.audioTrack);
   };
 
+  /**
+   * A source broke. Move to the next one that has not failed yet. Only when every source has
+   * failed is the list fetched again, and only if the film actually played since the last fetch
+   * (links expire mid-film). Otherwise stop and say so, rather than retrying for ever.
+   */
+  const giveUpOn = (broken: Source, at: number) => {
+    if (source()?.url !== broken.url) return;
+    tried.add(broken.url);
+    const next = (payload()?.sources ?? []).find((entry) => entry.url && !tried.has(entry.url));
+    if (next) {
+      play(next, at);
+    } else if (at > fetchedAt + 5) {
+      void refetch(at);
+    } else {
+      destroyStream();
+      fail(t("player.noSource"));
+    }
+  };
+
   /** Play one source, resuming where this title was left. */
   const play = (chosen: Source, from: number) => {
     destroyStream();
     setSource(chosen);
+    mediaRecoveries = 0;
     setLevels([]);
     setLevel(-1);
     setAutoHeight(0);
@@ -227,18 +253,19 @@ export default function Player(props: PlayerProps) {
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          void refetch(video?.currentTime ?? from);
-        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        // A decoding hiccup is worth two recoveries; after that the source counts as broken.
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
+          mediaRecoveries++;
           hls?.recoverMediaError();
-        } else {
-          fail(t("player.sourceStopped"));
+          return;
         }
+        giveUpOn(chosen, video?.currentTime || from);
       });
       hls.loadSource(url);
       hls.attachMedia(video);
     } else {
       video.src = url;
+      video.onerror = () => giveUpOn(chosen, video.currentTime || from);
     }
 
     setStage("ready");
@@ -315,6 +342,8 @@ export default function Player(props: PlayerProps) {
         fail(t("player.noSource"));
         return;
       }
+      tried.clear();
+      fetchedAt = from;
       setPayload(fresh);
       const list = (fresh.subtitles ?? []).filter((entry) => entry.url);
       setSubtitles(list);
