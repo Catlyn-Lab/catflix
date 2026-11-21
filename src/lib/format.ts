@@ -43,8 +43,10 @@ export function clean(items?: unknown): Paged<any>["results"] {
   for (const item of items) {
     if (!item?.id || !item?.title) continue;
     const id = String(item.id);
-    if (seen.has(id)) continue;
-    seen.add(id);
+    // A film and a series can share a number, so the type is part of what makes a title unique.
+    const key = `${item.type ?? ""}:${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push({ ...item, id });
   }
   return out;

@@ -1000,8 +1000,16 @@ img {
   overflow-wrap: anywhere;
 }
 
-.main > .state {
+.main > .state,
+.opening > .state {
   padding-top: 40vh;
+}
+
+.opening > .icon-btn {
+  position: absolute;
+  top: calc(1rem + var(--safe-top));
+  left: calc(var(--gutter) + var(--safe-left));
+  z-index: 2;
 }
 
 .cat {
