@@ -2,6 +2,8 @@ import Hls from "hls.js";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { streams, type MediaType, type Source, type Streams, type Subtitle } from "../lib/api";
 import { animeStreams, dramaStreams } from "../lib/sources";
+import { asSubtitle, generatedFor, generatedStatus, type Generated } from "../lib/subtitles";
+import SubtitleMaker from "./SubtitleMaker";
 import { cueAt, loadCues, type Cue } from "../lib/captions";
 import { isTouch, usesDpad } from "../lib/device";
 import { streamUrl } from "../lib/format";
@@ -126,6 +128,8 @@ export default function Player(props: PlayerProps) {
   const [scrub, setScrub] = createSignal<number | null>(null);
   const [hover, setHover] = createSignal<number | null>(null);
   const [panel, setPanel] = createSignal<Panel | null>(null);
+  /** The "Create subtitle" form, shown in place of the subtitle list. */
+  const [maker, setMaker] = createSignal(false);
   const [fullscreen, setFullscreen] = createSignal(false);
   const [toast, setToast] = createSignal("");
   const [ripple, setRipple] = createSignal<"back" | "forward" | null>(null);
@@ -338,6 +342,45 @@ export default function Player(props: PlayerProps) {
     return best;
   };
 
+  /** The title's own subtitles: the ones a new subtitle can be made from. */
+  const sources = () => subtitles().filter((entry) => !entry.generated);
+  const percentOf = (entry: Subtitle) =>
+    entry.generated?.total ? Math.floor((entry.generated.done / entry.generated.total) * 100) : 0;
+
+  /** A subtitle was made (or found ready-made): add it and show it. */
+  const addGenerated = (made: Generated) => {
+    const list = subtitles();
+    const at = list.findIndex((entry) => entry.generated?.id === made.id);
+    const index = at >= 0 ? at : list.length;
+    if (at < 0) setSubtitles([...list, asSubtitle(made)]);
+    setMaker(false);
+    closePanel();
+    pickTrack(index);
+  };
+
+  /* While a picked subtitle is still being made, fetch what is ready every few seconds. */
+  let generatedTimer = 0;
+  createEffect(
+    on(track, (index) => {
+      clearInterval(generatedTimer);
+      const entry = subtitles()[index];
+      if (entry?.generated?.status !== "working") return;
+      const id = entry.generated.id;
+      generatedTimer = window.setInterval(async () => {
+        const made = await generatedStatus(id).catch(() => null);
+        if (!made || track() !== index) return;
+        setSubtitles((list) => list.map((item) => (item.generated?.id === id ? asSubtitle(made) : item)));
+        const cues = await loadCues(made.url, true).catch(() => null);
+        if (cues && track() === index) setCues(cues);
+        if (made.status !== "working") {
+          clearInterval(generatedTimer);
+          if (made.status === "failed") say(t("maker.failed"), 3000);
+        }
+      }, 4000);
+    }),
+  );
+  onCleanup(() => clearInterval(generatedTimer));
+
   /** Show one subtitle file, or none. A choice made by the viewer is remembered. */
   const pickTrack = (index: number, byViewer = true) => {
     setTrack(index);
@@ -349,7 +392,7 @@ export default function Player(props: PlayerProps) {
       savePrefs({ subtitlesOff: !entry });
     }
     if (!entry) return;
-    loadCues(entry.url)
+    loadCues(entry.url, Boolean(entry.generated))
       .then((loaded) => {
         if (track() === index) setCues(loaded);
       })
@@ -388,6 +431,15 @@ export default function Player(props: PlayerProps) {
       setSubtitles(list);
       const auto = preferredCaption(list);
       if (auto >= 0) pickTrack(auto, false);
+      // Subtitles made earlier from these files (by anyone) join the list after the title's own.
+      void generatedFor(list.map((entry) => entry.url)).then((made) => {
+        if (!made.length || payload() !== fresh) return;
+        setSubtitles([...list, ...made]);
+        if (auto < 0 && !loadPrefs().subtitlesOff) {
+          const wanted = preferredCaption([...list, ...made]);
+          if (wanted >= list.length) pickTrack(wanted, false);
+        }
+      });
       play(usable[0], from);
     } catch (error) {
       fail(String((error as Error).message ?? error));
@@ -520,9 +572,16 @@ export default function Player(props: PlayerProps) {
           { label: t("player.off"), active: track() === -1, pick: () => pickTrack(-1) },
           ...subtitles().map((entry, index) => ({
             label: captionName(entry),
+            hint:
+              entry.generated?.status === "working"
+                ? t("maker.inProgress", { percent: percentOf(entry) })
+                : undefined,
             active: track() === index,
             pick: () => pickTrack(index),
           })),
+          ...(sources().length
+            ? [{ label: t("maker.create"), active: false, pick: () => setMaker(true) }]
+            : []),
         ];
       case "audio":
         return audioTracks().map((entry) => ({
@@ -569,6 +628,7 @@ export default function Player(props: PlayerProps) {
 
   const closePanel = () => {
     setPanel(null);
+    setMaker(false);
     wake();
   };
 
@@ -1176,30 +1236,45 @@ export default function Player(props: PlayerProps) {
               <Close />
             </button>
           </div>
-          <div class="sheet-list">
-            <For each={options()}>
-              {(entry) => (
-                <button
-                  class="option"
-                  data-active={entry.active || undefined}
-                  onClick={() => {
-                    entry.pick();
-                    wake();
-                  }}
-                >
-                  <span>
-                    {entry.label}
-                    <Show when={entry.hint}>
-                      <small>{entry.hint}</small>
-                    </Show>
-                  </span>
-                  <Show when={entry.active}>
-                    <Check />
-                  </Show>
-                </button>
-              )}
-            </For>
-          </div>
+          <Show
+            when={maker() && panel() === "subtitles"}
+            fallback={
+              <div class="sheet-list">
+                <For each={options()}>
+                  {(entry) => (
+                    <button
+                      class="option"
+                      data-active={entry.active || undefined}
+                      onClick={() => {
+                        entry.pick();
+                        wake();
+                      }}
+                    >
+                      <span>
+                        {entry.label}
+                        <Show when={entry.hint}>
+                          <small>{entry.hint}</small>
+                        </Show>
+                      </span>
+                      <Show when={entry.active}>
+                        <Check />
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </div>
+            }
+          >
+            <SubtitleMaker
+              sources={sources()}
+              sourceName={captionName}
+              onCreated={addGenerated}
+              onBack={() => {
+                setMaker(false);
+                focusPanel();
+              }}
+            />
+          </Show>
         </div>
       </Show>
     </div>

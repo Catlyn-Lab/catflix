@@ -31,3 +31,10 @@ export function relayedUrl(url: string, referer: string) {
     ? `http://stream.localhost/?${query}`
     : `stream://localhost/?${query}`;
 }
+
+/** Open a page of Catflix's own server in the system browser (desktop sign-in). */
+export async function openExternal(url: string) {
+  const shell = internals();
+  if (!shell) throw new Error("only available in the app");
+  await shell.invoke("open_external", { url });
+}

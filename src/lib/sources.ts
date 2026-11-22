@@ -1,14 +1,15 @@
 /**
  * Anime and Asian-drama catalogue clients.
  *
- * Neither source belongs to Catflix's own API: anime come from aniwaves.tv through its public
- * JSON bridge, Asian dramas from kissasia.biz (a WordPress REST API plus its Blogger playlist
+ * Neither source belongs to Catflix's own API: anime come from a catalogue site through its public
+ * JSON bridge, Asian dramas from a WordPress site (its REST API plus the playlist feeds its player
  * feed). Both are proxied through Catflix's own hosts where the source has no CORS, and both
  * answer in their own shape, so they are normalised to `Item`, `Details`, `Season` and `Episode`
  * here and nowhere else.
  */
 
 import {
+  backendUrl,
   params,
   SAME_ORIGIN,
   url as apiUrl,
@@ -18,27 +19,17 @@ import {
   type Season,
   type Streams,
 } from "./api";
+import { config } from "./config";
 import { isNative, nativeGet, relayedUrl } from "./native";
 
-const HOSTS = [
-  "https://api.framextv.xyz",
-  "https://api.framextv.cc",
-  "https://api.framextv.tech",
-  "https://api.framextv.pro",
-];
+const HOSTS = config.catalogueHosts;
 
-/** The aniwaves bridge (Cloudflare worker): catalogue, detail and playback in one place. */
-const ANIME = "https://worker8652.appleflux.workers.dev/api/aniwaves";
-/** The site itself: its filter page is the only listing that honours genre and status. */
-const ANIWAVES = "https://aniwaves.tv";
-const KISSASIA = "https://kissasia.biz";
-const KISSASIA_REFERER = "https://kissasia.biz/";
-/** The two Blogger feeds kissasia keeps its playlists in (from the site's player settings). */
-const PLAYLIST_BLOGS = ["4927638411765974267", "401665521700938130"];
-/** Media hosts that answer the app directly; the rest only play through the proxy. */
-const DIRECT_HOSTS = /(sooplive\.com|imostatic\.com|rumble\.cloud|1a-1791\.com)$/;
-/** Media hosts that only answer kissasia's referer: the app relays them (see `native.ts`). */
-const REFERER_HOSTS = /(flixfile\.top|cdnvideo\.autos)$/;
+/** Anime: the catalogue's JSON bridge (search, detail, playback) and the site (filter page). */
+const ANIME = config.animeBridge;
+const ANIME_SITE = config.animeSite;
+/** Asian drama: the catalogue site and the referer its video hosts expect. */
+const DRAMA = config.dramaSite;
+const DRAMA_REFERER = config.lockedReferer || `${config.dramaSite}/`;
 
 const TIMEOUT = 25_000;
 
@@ -63,14 +54,14 @@ async function json<T>(url: string): Promise<T> {
 }
 
 /**
- * kissasia.biz answers Cloudflare challenges to some egress addresses. The public Reader service
+ * The drama site answers Cloudflare challenges to some egress addresses. The public Reader service
  * has its own egress and hands the body back as `data.content`, so it is the second reader.
  */
-const READER = "https://r.jina.ai/";
+const READER = config.reader;
 
 /**
  * Read a URL as JSON: the app's own request first, then the Reader, then Catflix's proxy (which
- * kissasia usually challenges, so it comes last).
+ * the drama site usually challenges, so it comes last).
  */
 async function readJson<T>(target: string): Promise<T> {
   return JSON.parse(await readText(target)) as T;
@@ -79,7 +70,7 @@ async function readJson<T>(target: string): Promise<T> {
 /** Read a URL as text through the same chain as `readJson`. Subtitle files use it too. */
 export async function readText(target: string): Promise<string> {
   const attempts: (() => Promise<string>)[] = [
-    ...(isNative() ? [async () => (await nativeGet(target, KISSASIA_REFERER)).body] : []),
+    ...(isNative() ? [async () => (await nativeGet(target, DRAMA_REFERER)).body] : []),
     async () => {
       const response = await attempt(`${READER}${target}`, "application/json");
       if (!response.ok) throw new Error(`the reader answered ${response.status}`);
@@ -101,10 +92,10 @@ export async function readText(target: string): Promise<string> {
   throw lastError;
 }
 
-/** kissasia's uploads refuse hot-linking, so posters load through Catflix's proxy. */
+/** The drama site's uploads refuse hot-linking, so posters load through Catflix's proxy. */
 const poster = (url?: string | null) => (url ? apiUrl(`/api/proxy?${params({ url })}`) : null);
 
-/** The aniwaves bridge only allows `http://localhost:1420`, so it is read through our proxy. */
+/** The anime bridge only allows `http://localhost:1420`, so it is read through our proxy. */
 async function bridged<T>(path: string): Promise<T> {
   const response = await proxied(`${ANIME}${path}`);
   return (await response.json()) as T;
@@ -147,7 +138,7 @@ type BridgeItem = {
 
 type BridgePage = { ok: boolean; totalPages?: number; results?: BridgeItem[] };
 
-/** aniwaves.tv's own genre ids (its filter form), the common ones first. */
+/** The anime site's own genre ids (its filter form), the common ones first. */
 export const ANIME_GENRES: { id: number; name: string }[] = [
   { id: 1, name: "Action" },
   { id: 10, name: "Adventure" },
@@ -204,7 +195,7 @@ async function animeFilter(mode: AnimeMode, page: number, genre?: number) {
   const query = new URLSearchParams({ sort_by: filter.sort, page: String(page) });
   if (genre) query.append("genre[]", String(genre));
   if (filter.status !== undefined) query.append("status[]", String(filter.status));
-  const html = (await nativeGet(`${ANIWAVES}/filter?${query}`)).body;
+  const html = (await nativeGet(`${ANIME_SITE}/filter?${query}`)).body;
   const doc = new DOMParser().parseFromString(html, "text/html");
   const items: Item[] = [];
   for (const card of doc.querySelectorAll("#list-items .item")) {
@@ -349,13 +340,13 @@ export async function animeStreams(id: string, episode: number): Promise<Streams
   if (!payload.ok || !payload.playUrl) return { success: true, sources: [], subtitles: [] };
   return {
     success: true,
-    provider: "aniwaves",
+    provider: "anime",
     sources: [
       {
         url: payload.playUrl,
         quality: payload.quality && payload.quality !== "auto" ? payload.quality : "auto",
         type: "hls",
-        server: payload.serverName ?? "aniwaves",
+        server: payload.serverName ?? "anime",
         // The CDN sends no CORS headers, so the playlist and its segments go through the proxy.
         skipProxy: false,
       },
@@ -370,7 +361,7 @@ export async function animeStreams(id: string, episode: number): Promise<Streams
 
 /* ------------------------------------------------------------------- drama */
 
-/** kissasia category ids (WordPress), the regions and two states of the site. */
+/** The drama site's WordPress category ids, the regions and two states of the site. */
 export const DRAMA_REGIONS: { id: number; name: string }[] = [
   { id: 5, name: "China" },
   { id: 6, name: "South Korea" },
@@ -431,7 +422,7 @@ async function postersFor(ids: number[]) {
   const unique = [...new Set(ids.filter(Boolean))];
   if (!unique.length) return new Map<number, string>();
   const records = await readJson<{ id: number; source_url: string }[]>(
-    `${KISSASIA}/wp-json/wp/v2/media?${params({
+    `${DRAMA}/wp-json/wp/v2/media?${params({
       per_page: unique.length,
       include: unique.join(","),
       _fields: "id,source_url",
@@ -444,7 +435,7 @@ export async function dramaList(page = 1, region?: number, kind?: number, state?
   const categories = [region, kind, state].filter(Boolean).join(",");
   // 40 a page: the Reader folds the whole answer into one JSON string, so smaller pages travel better.
   const posts = await readJson<WpPost[]>(
-    `${KISSASIA}/wp-json/wp/v2/posts?${params({
+    `${DRAMA}/wp-json/wp/v2/posts?${params({
       per_page: 40,
       page,
       categories,
@@ -459,7 +450,7 @@ export async function dramaList(page = 1, region?: number, kind?: number, state?
 
 export async function dramaSearch(term: string) {
   const posts = await readJson<WpPost[]>(
-    `${KISSASIA}/wp-json/wp/v2/posts?${params({
+    `${DRAMA}/wp-json/wp/v2/posts?${params({
       per_page: 30,
       search: term,
       _fields: "id,slug,title,date,featured_media,categories,meta",
@@ -470,15 +461,15 @@ export async function dramaSearch(term: string) {
 }
 
 /**
- * The Blogger playlist a kissasia post points at: one `url|languages|subtitle files` entry per
+ * The playlist feed a drama post points at: one `url|languages|subtitle files` entry per
  * episode, separated by `;`.
  */
 async function playlists(postId: string) {
   let content = "";
-  for (const blog of PLAYLIST_BLOGS) {
-    // Blogger sends no CORS headers, so the feed is read through the same chain as kissasia.
+  for (const feed of config.dramaPlaylists) {
+    // The feed sends no CORS headers, so it is read through the same chain as the drama site.
     const entry = await readJson<{ entry?: { content?: { $t?: string } } }>(
-      `https://www.blogger.com/feeds/${blog}/posts/default/${postId}?alt=json`,
+      feed.replace("{id}", postId),
     ).catch(() => null);
     content = entry?.entry?.content?.$t ?? "";
     if (content) break;
@@ -523,7 +514,7 @@ function dramaPost(slug: string) {
 
 async function readPost(slug: string) {
   const posts = await readJson<WpDetail[]>(
-    `${KISSASIA}/wp-json/wp/v2/posts?${params({
+    `${DRAMA}/wp-json/wp/v2/posts?${params({
       slug,
       _fields: "id,slug,title,date,featured_media,categories,meta,content",
     })}`,
@@ -590,22 +581,22 @@ export async function dramaStreams(slug: string, episode: number): Promise<Strea
   const host = new URL(chosen.url).hostname;
   // Referer-locked hosts play through a relay: the app's own, or the website's server
   // (`server.mjs`). In local development in a plain browser there is none, and they can't play.
-  const locked = REFERER_HOSTS.test(host);
+  const locked = config.lockedHosts.test(host);
   return {
     success: true,
-    provider: "kissasia",
+    provider: "drama",
     sources: [
       {
         url: !locked
           ? chosen.url
           : isNative()
-            ? relayedUrl(chosen.url, KISSASIA_REFERER)
+            ? relayedUrl(chosen.url, DRAMA_REFERER)
             : SAME_ORIGIN
-              ? `${location.origin}/stream?${params({ url: chosen.url, referer: KISSASIA_REFERER })}`
+              ? backendUrl(`/stream?${params({ url: chosen.url })}`)
               : chosen.url,
         type: chosen.url.includes(".m3u8") ? "hls" : "mp4",
-        server: "kissasia",
-        skipProxy: locked || DIRECT_HOSTS.test(host),
+        server: "drama",
+        skipProxy: locked || config.directHosts.test(host),
       },
     ],
     subtitles: chosen.subtitles.map((entry) => ({ ...entry })),

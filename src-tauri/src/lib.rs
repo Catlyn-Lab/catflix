@@ -16,17 +16,8 @@ const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW
 
 /// Hosts the helpers may reach. Anything else is refused, so the webview can't be used to fetch
 /// arbitrary URLs.
-const ALLOWED: &[&str] = &[
-    "aniwaves.tv",
-    "kissasia.biz",
-    "www.blogger.com",
-    "api.flixfile.top",
-    "cdnvideo.autos",
-    "sooplive.com",
-    "imostatic.com",
-    "rumble.cloud",
-    "1a-1791.com",
-];
+/// The hosts from `.env` (see `build.rs`), fixed when the app is built.
+const ALLOWED: &str = env!("CATFLIX_NATIVE_HOSTS");
 
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -44,8 +35,9 @@ fn allowed(url: &str) -> Result<reqwest::Url, String> {
     let host = parsed.host_str().unwrap_or_default();
     let ok = parsed.scheme() == "https"
         && ALLOWED
-            .iter()
-            .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")));
+            .split(',')
+            .filter(|domain| !domain.is_empty())
+            .any(|domain| host == domain || host.ends_with(&format!(".{domain}")));
     if ok {
         Ok(parsed)
     } else {
@@ -324,10 +316,30 @@ fn parse_range(value: &str) -> Option<(u64, Option<u64>)> {
     Some((start, end))
 }
 
+/// Catflix's own server (`VITE_BACKEND_URL`), fixed when the app is built.
+const BACKEND: &str = env!("CATFLIX_BACKEND");
+
+/// Open a page of Catflix's server in the system browser: Google sign-in happens there.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(&url).map_err(|_| "that address is not valid".to_string())?;
+    let backend = reqwest::Url::parse(BACKEND).map_err(|_| "no Catflix server is set".to_string())?;
+    if parsed.origin() != backend.origin() {
+        return Err("only Catflix's own pages open in the browser".into());
+    }
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(parsed.as_str()).spawn();
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", parsed.as_str()]).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = std::process::Command::new("xdg-open").arg(parsed.as_str()).spawn();
+    result.map(|_| ()).map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![native_get])
+        .invoke_handler(tauri::generate_handler![native_get, open_external])
         .register_asynchronous_uri_scheme_protocol("stream", |_context, request, responder| {
             tauri::async_runtime::spawn(async move {
                 responder.respond(relay(request).await);
@@ -341,72 +353,44 @@ pub fn run() {
 mod live {
     use super::*;
 
-    /// Hits the real sources: `cargo test -- --ignored` to run it.
+    fn setting(name: &str) -> String {
+        std::env::var(name).unwrap_or_else(|_| panic!("set {name} to run the live test"))
+    }
+
+    /// Hits the real sources. Run with the source settings exported, e.g.
+    /// `CATFLIX_TEST_JSON=… CATFLIX_TEST_PAGE=… CATFLIX_TEST_VIDEO=… CATFLIX_TEST_REFERER=… cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn sources_answer() {
-        let posts = native_get(
-            "https://kissasia.biz/wp-json/wp/v2/posts?per_page=2&_fields=id".into(),
-            Some("https://kissasia.biz/".into()),
-        )
-        .await
-        .unwrap();
-        println!(
-            "kissasia {} total={:?} {}",
-            posts.status,
-            posts.total,
-            &posts.body[..60.min(posts.body.len())]
-        );
-        assert_eq!(posts.status, 200);
+        let referer = setting("CATFLIX_TEST_REFERER");
+        let json = native_get(setting("CATFLIX_TEST_JSON"), Some(referer.clone())).await.unwrap();
+        println!("json {} total={:?}", json.status, json.total);
+        assert_eq!(json.status, 200);
 
-        let filter = native_get(
-            "https://aniwaves.tv/filter?genre%5B%5D=4&status%5B%5D=0&sort_by=members&page=1".into(),
-            None,
-        )
-        .await
-        .unwrap();
-        println!(
-            "aniwaves {} items={}",
-            filter.status,
-            filter.body.matches("class=\"item\"").count()
-        );
-        assert!(filter.body.contains("class=\"item\""));
+        let page = native_get(setting("CATFLIX_TEST_PAGE"), None).await.unwrap();
+        println!("page {} {} bytes", page.status, page.body.len());
+        assert_eq!(page.status, 200);
 
-        let request = Request::builder()
-            .uri("stream://localhost/?url=https%3A%2F%2Fapi.flixfile.top%2Fmedia%2F09B9t3B5pl.mp4&referer=https%3A%2F%2Fkissasia.biz%2F")
-            .header(header::RANGE, "bytes=0-")
-            .body(Vec::new())
-            .unwrap();
-        let response = relay(request).await;
-        println!(
-            "relay {} {:?} {} bytes {:?}",
-            response.status(),
-            response.headers().get(header::CONTENT_TYPE),
-            response.body().len(),
-            response.headers().get(header::CONTENT_RANGE)
-        );
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("url", &setting("CATFLIX_TEST_VIDEO"))
+            .append_pair("referer", &referer)
+            .finish();
+        let uri = format!("stream://localhost/?{query}");
+        let response = relay(Request::builder().uri(&uri).header(header::RANGE, "bytes=0-").body(Vec::new()).unwrap()).await;
+        println!("relay {} {} bytes", response.status(), response.body().len());
         assert_eq!(response.status(), 206);
         assert_eq!(&response.body()[4..8], b"ftyp");
 
-        // Tiny reads, as the webview makes them, come from the cached block.
-        for offset in [1000u64, 5000, 900_000, 2 * 1024 * 1024 - 300] {
+        // Tiny reads, as the webview makes them, come from the cached block, also across an edge.
+        for offset in [1000u64, 900_000, 2 * 1024 * 1024 - 300] {
             let request = Request::builder()
-                .uri("stream://localhost/?url=https%3A%2F%2Fapi.flixfile.top%2Fmedia%2F09B9t3B5pl.mp4&referer=https%3A%2F%2Fkissasia.biz%2F")
+                .uri(&uri)
                 .header(header::RANGE, format!("bytes={offset}-{}", offset + 799))
                 .body(Vec::new())
                 .unwrap();
-            let started = std::time::Instant::now();
-            let response = relay(request).await;
-            println!(
-                "read {offset}: {} {} bytes in {:?}",
-                response.status(),
-                response.body().len(),
-                started.elapsed()
-            );
-            assert_eq!(response.body().len(), 800);
+            assert_eq!(relay(request).await.body().len(), 800);
         }
 
-        let refused = native_get("https://example.com/".into(), None).await;
-        assert!(refused.is_err());
+        assert!(native_get("https://example.com/".into(), None).await.is_err());
     }
 }

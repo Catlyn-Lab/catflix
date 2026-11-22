@@ -1,16 +1,13 @@
 /**
  * Catalogue and playback API client.
  *
- * The API runs several interchangeable hosts; if one fails or is rate
+ * The API runs several interchangeable hosts (`VITE_CATALOGUE_HOSTS`); if one fails or is rate
  * limited the others are tried in turn.
  */
 
-const HOSTS = [
-  "https://api.framextv.xyz",
-  "https://api.framextv.cc",
-  "https://api.framextv.tech",
-  "https://api.framextv.pro",
-];
+import { config } from "./config";
+
+const HOSTS = config.catalogueHosts;
 
 const STORAGE_KEY = "catflix:host";
 
@@ -40,10 +37,10 @@ function hostOrder() {
   return [...HOSTS.slice(start), ...HOSTS.slice(0, start)];
 }
 
-let active = localStorage.getItem(STORAGE_KEY) ?? HOSTS[0];
+let active = localStorage.getItem(STORAGE_KEY) ?? HOSTS[0] ?? "";
 
 function build(path: string, host: string) {
-  return path.startsWith("http") ? path.replace(HOSTS[0], host) : `${host}${path}`;
+  return path.startsWith("http") && HOSTS[0] ? path.replace(HOSTS[0], host) : `${host}${path}`;
 }
 
 async function attempt(url: string): Promise<Response> {
@@ -188,7 +185,15 @@ export type Source = {
   skipProxy?: boolean;
 };
 
-export type Subtitle = { url: string; label?: string; lang?: string; language?: string; format?: string };
+export type Subtitle = {
+  url: string;
+  label?: string;
+  lang?: string;
+  language?: string;
+  format?: string;
+  /** A subtitle Catflix made from another one (see `subtitles.ts`). */
+  generated?: { id: number; status: "working" | "ready" | "failed"; done: number; total: number };
+};
 
 export type Streams = {
   success: boolean;
@@ -236,44 +241,17 @@ export const availability = (type: MediaType, id: string, provider: string) =>
 
 /* ----------------------------------------------------------- translation */
 
-/**
- * The catalogue only speaks English, so descriptions are translated on request. Two public,
- * keyless services are tried in turn; both answer with CORS headers.
- */
-const TRANSLATORS: ((text: string, to: string) => Promise<string>)[] = [
-  async (text, to) => {
-    const query = params({ client: "gtx", sl: "en", tl: to, dt: "t", q: text });
-    const response = await attempt(`https://translate.googleapis.com/translate_a/single?${query}`);
-    if (!response.ok) throw new ApiError(`translation answered ${response.status}`, response.status);
-    const payload = (await response.json()) as [[string, string][]];
-    return payload[0].map((segment) => segment[0]).join("");
-  },
-  async (text, to) => {
-    // This service takes at most 500 characters per request.
-    if (text.length > 500) throw new ApiError("text too long for the fallback translator", 0);
-    const query = params({ langpair: `en|${to}`, q: text });
-    const response = await attempt(`https://api.mymemory.translated.net/get?${query}`);
-    if (!response.ok) throw new ApiError(`translation answered ${response.status}`, response.status);
-    const payload = (await response.json()) as {
-      responseStatus: number;
-      responseData?: { translatedText?: string };
-    };
-    const result = payload.responseData?.translatedText;
-    if (payload.responseStatus !== 200 || !result) throw new ApiError("translation unavailable", 0);
-    return result;
-  },
-];
+/** Catflix's own server: accounts, sync, subtitles and translation. */
+export const backendUrl = (path: string) => `${config.backend || location.origin}${path}`;
 
-/** Translate English text into another language. Rejects when no service answers. */
+/**
+ * The catalogue only speaks English, so descriptions are translated on request by Catflix's
+ * server (which keeps the translation services in its own settings).
+ */
 export async function translate(text: string, to: string): Promise<string> {
-  let lastError: Error = new ApiError("translation unavailable", 0);
-  for (const service of TRANSLATORS) {
-    try {
-      const result = (await service(text, to)).trim();
-      if (result) return result;
-    } catch (error) {
-      lastError = error as Error;
-    }
-  }
-  throw lastError;
+  const response = await attempt(backendUrl(`/translate?${params({ to, q: text })}`));
+  if (!response.ok) throw new ApiError(`translation answered ${response.status}`, response.status);
+  const payload = (await response.json()) as { text?: string };
+  if (!payload.text?.trim()) throw new ApiError("translation unavailable", 0);
+  return payload.text.trim();
 }

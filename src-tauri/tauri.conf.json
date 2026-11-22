@@ -30,7 +30,7 @@
         "style-src": "'self' 'unsafe-inline'",
         "script-src": "'self' 'wasm-unsafe-eval'",
         "worker-src": "'self' blob:",
-        "connect-src": "'self' ipc: http://ipc.localhost https: stream: http://stream.localhost"
+        "connect-src": "'self' ipc: http://ipc.localhost https: stream: http://stream.localhost http://localhost:8110"
       }
     }
   },

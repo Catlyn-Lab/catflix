@@ -1,5 +1,4 @@
 import { createResource, createSignal, For, Show } from "solid-js";
-import { A } from "@solidjs/router";
 import type { Item } from "../lib/api";
 import { DRAMA_KINDS, DRAMA_REGIONS, DRAMA_STATES, dramaList } from "../lib/sources";
 import { t } from "../lib/i18n";
@@ -114,13 +113,6 @@ export default function Drama() {
           </Show>
         </Show>
       </Show>
-
-      <footer class="foot">
-        {t("drama.footer")}{" "}
-        <A class="source-link" href="https://kissasia.biz/" target="_blank" rel="noreferrer">
-          kissasia.biz
-        </A>
-      </footer>
     </div>
   );
 }

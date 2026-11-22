@@ -93,7 +93,6 @@ const en = {
   "anime.error": "Catflix could not load the anime list",
   "anime.emptyTitle": "Nothing here yet",
   "anime.emptyHint": "Pick another genre or ordering to keep browsing.",
-  "anime.footer": "Anime streamed by Catflix; catalogue from",
   "anime.episodes": "Episodes",
   "anime.noEpisodes": "This anime has no episodes listed yet",
 
@@ -108,7 +107,6 @@ const en = {
   "drama.error": "Catflix could not load the drama list",
   "drama.emptyTitle": "Nothing in this region yet",
   "drama.emptyHint": "Pick another region or status to keep browsing.",
-  "drama.footer": "Asian dramas streamed by Catflix; catalogue from",
 
   "detail.error": "Catflix could not load this title",
   "detail.backHome": "Back to home",
@@ -188,6 +186,54 @@ const en = {
   "player.pip": "Picture in picture",
   "player.fullscreen": "Fullscreen",
   "player.leaveFullscreen": "Leave fullscreen",
+
+  "account.signIn": "Sign in",
+  "account.signInGoogle": "Sign in with Google",
+  "account.signOut": "Sign out",
+  "account.menu": "Account",
+  "account.history": "History",
+  "account.signedInAs": "Signed in as {name}",
+  "account.gateTitle": "Sign in to watch",
+  "account.gateText":
+    "Use your Google account. Catflix keeps your place in every film and series on all your devices.",
+  "account.waiting": "Finish signing in in your browser…",
+  "account.cancel": "Cancel",
+  "account.offline": "Catflix could not reach its server",
+  "account.offlineHint": "Check your connection and try again.",
+  "account.notSetUp": "Sign-in is not set up on this server yet.",
+  "account.synced": "Synced with your account",
+
+  "history.title": "History",
+  "history.emptyTitle": "Nothing watched yet",
+  "history.emptyHint": "Films and series you watch show up here.",
+  "history.guestHint": "Sign in to keep your history on all your devices.",
+  "history.clear": "Clear history",
+
+  "maker.create": "Create subtitle…",
+  "maker.title": "Create a subtitle",
+  "maker.from": "From",
+  "maker.into": "Into",
+  "maker.how": "How",
+  "maker.translator": "Translator",
+  "maker.translatorHint": "Free and quick",
+  "maker.ai": "AI",
+  "maker.aiHint": "Natural wording, in your tone",
+  "maker.aiSignIn": "Sign in to use AI",
+  "maker.aiUnavailable": "AI is not set up yet",
+  "maker.tone": "Tone",
+  "maker.customPlaceholder": "e.g. dramatic, like a radio play",
+  "maker.start": "Create",
+  "maker.back": "Back",
+  "maker.working": "Creating… {percent}%",
+  "maker.failed": "This subtitle could not be created",
+  "maker.shared": "Ready for everyone who watches this",
+  "maker.inProgress": "{percent}% done",
+
+  "tone.formal": "Formal",
+  "tone.neutral": "Neutral",
+  "tone.casual": "Casual (gaul)",
+  "tone.kids": "For kids",
+  "tone.custom": "Custom",
 };
 
 export type Phrase = keyof typeof en;
@@ -271,7 +317,6 @@ const id: Record<Phrase, string> = {
   "anime.error": "Catflix tidak dapat memuat daftar anime",
   "anime.emptyTitle": "Belum ada apa-apa di sini",
   "anime.emptyHint": "Pilih genre atau urutan lain untuk terus menjelajah.",
-  "anime.footer": "Anime diputar oleh Catflix; katalog dari",
   "anime.episodes": "Episode",
   "anime.noEpisodes": "Anime ini belum punya daftar episode",
 
@@ -286,7 +331,6 @@ const id: Record<Phrase, string> = {
   "drama.error": "Catflix tidak dapat memuat daftar drama",
   "drama.emptyTitle": "Belum ada apa-apa di wilayah ini",
   "drama.emptyHint": "Pilih wilayah atau status lain untuk terus menjelajah.",
-  "drama.footer": "Drama Asia diputar oleh Catflix; katalog dari",
 
   "detail.error": "Catflix tidak dapat memuat judul ini",
   "detail.backHome": "Kembali ke beranda",
@@ -366,6 +410,53 @@ const id: Record<Phrase, string> = {
   "player.pip": "Gambar dalam gambar",
   "player.fullscreen": "Layar penuh",
   "player.leaveFullscreen": "Keluar dari layar penuh",
+
+  "account.signIn": "Masuk",
+  "account.signInGoogle": "Masuk dengan Google",
+  "account.signOut": "Keluar",
+  "account.menu": "Akun",
+  "account.history": "Riwayat",
+  "account.signedInAs": "Masuk sebagai {name}",
+  "account.gateTitle": "Masuk untuk menonton",
+  "account.gateText": "Gunakan akun Google Anda. Catflix menyimpan posisi tontonan Anda di semua perangkat.",
+  "account.waiting": "Selesaikan proses masuk di browser Anda…",
+  "account.cancel": "Batal",
+  "account.offline": "Catflix tidak dapat menjangkau servernya",
+  "account.offlineHint": "Periksa koneksi Anda lalu coba lagi.",
+  "account.notSetUp": "Fitur masuk belum diatur di server ini.",
+  "account.synced": "Tersinkron dengan akun Anda",
+
+  "history.title": "Riwayat",
+  "history.emptyTitle": "Belum ada yang ditonton",
+  "history.emptyHint": "Film dan serial yang Anda tonton akan muncul di sini.",
+  "history.guestHint": "Masuk agar riwayat Anda tersimpan di semua perangkat.",
+  "history.clear": "Hapus riwayat",
+
+  "maker.create": "Buat subtitle…",
+  "maker.title": "Buat subtitle",
+  "maker.from": "Dari",
+  "maker.into": "Ke",
+  "maker.how": "Cara",
+  "maker.translator": "Penerjemah",
+  "maker.translatorHint": "Gratis dan cepat",
+  "maker.ai": "AI",
+  "maker.aiHint": "Bahasa alami, sesuai gaya pilihan Anda",
+  "maker.aiSignIn": "Masuk untuk memakai AI",
+  "maker.aiUnavailable": "AI belum diatur",
+  "maker.tone": "Gaya bahasa",
+  "maker.customPlaceholder": "mis. dramatis, seperti sandiwara radio",
+  "maker.start": "Buat",
+  "maker.back": "Kembali",
+  "maker.working": "Membuat… {percent}%",
+  "maker.failed": "Subtitle ini tidak dapat dibuat",
+  "maker.shared": "Siap untuk semua yang menonton judul ini",
+  "maker.inProgress": "{percent}% selesai",
+
+  "tone.formal": "Formal",
+  "tone.neutral": "Netral",
+  "tone.casual": "Santai (gaul)",
+  "tone.kids": "Untuk anak",
+  "tone.custom": "Kustom",
 };
 
 const PHRASES: Record<Language, Record<Phrase, string>> = { en, id };
@@ -411,10 +502,11 @@ export const language = current;
 /** False until the first-run question has been answered. */
 export const languageChosen = chosen;
 
-export function setLanguage(next: Language) {
+/** `fromSync`: the choice came from another device and is already saved. */
+export function setLanguage(next: Language, fromSync = false) {
   setCurrent(next);
   setChosen(true);
-  savePrefs({ language: next });
+  if (!fromSync) savePrefs({ language: next });
   document.documentElement.lang = next;
 }
 

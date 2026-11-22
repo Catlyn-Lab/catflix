@@ -20,7 +20,12 @@ native macOS app, and the same interface adapts to a phone, a browser window and
   and they stay off.
 - **No ads** — the app loads only the catalogue and playback API, never an ad slot, pop-under or
   sponsored pre-roll.
-- **Local** — watch progress and preferences stay on the machine.
+- **Accounts and sync** — sign in with Google to carry progress, history and preferences to
+  every device. The website also works as a guest, keeping everything on that browser; the
+  desktop app asks you to sign in.
+- **Make a subtitle** — when a title has no subtitle in your language, make one from an existing
+  subtitle: with the translator (free, quick) or with AI, in the tone you choose (formal,
+  neutral, casual/gaul, for kids or your own). Subtitles made by anyone are shared.
 
 Built with Tauri 2 and SolidJS, so it is a small, fast desktop app rather than a browser tab.
 
@@ -53,17 +58,26 @@ by a public translation service (Google Translate, with MyMemory as a fallback) 
 the machine; only the description text is sent. Film titles and episode names are left as they
 are.
 
-Progress, preferences, cached translations and the remembered host live in local storage.
+Progress, preferences, cached translations and the remembered host live in local storage; when
+signed in, progress, history and preferences also sync through Catflix's server (`server/`).
 
 ## Requirements
 
 - macOS (the Tauri shell is configured for it), Node 20+ and a Rust toolchain with Xcode
   command line tools.
 
+## Configuration
+
+Hosts, URLs and keys live in `.env`, never in the repository. Copy `.env.example` to `.env` and
+fill it in. `VITE_*` values are build settings for the interface and the desktop shell; the rest
+are server-only (Google sign-in, the AI model, limits). Release builds on GitHub write `.env`
+from the `CATFLIX_ENV` repository secret. Details are in [`docs/api.md`](docs/api.md).
+
 ## Running
 
 ```sh
 npm install
+node server/index.mjs # Catflix's server (accounts, sync, subtitles) on 127.0.0.1:8110
 npm run tauri dev     # the desktop app
 npm run dev           # the same interface in a browser, at http://localhost:1420
 ```
@@ -92,18 +106,20 @@ The app icon source is `app-icon.png` (1024px); regenerate the icon set with `np
 
 - Metadata and artwork come from TMDB; films and series belong to their rights holders.
 - If no source is available for a title, the player says so and offers to try again.
-- The API hosts live in one array in `src/lib/api.ts`; everything else about the app is
-  Catflix's own — the UI, navigation, player and layout.
+- The API hosts come from `.env`; everything else about the app is Catflix's own — the UI,
+  navigation, player and layout.
 
 ## Hosting as a website
 
 ```sh
+cp .env.example .env       # fill it in; leave VITE_BACKEND_URL empty, set PUBLIC_URL
 npm ci && npm run build
-node server.mjs            # serves dist/ on 127.0.0.1:8110 (PORT to change)
+node server/index.mjs      # serves dist/ and the API on 127.0.0.1:8110 (PORT to change)
 ```
 
-`server.mjs` also forwards catalogue calls (`/api/*`) to the API, which only allows the app's own
-origins. Put it behind any reverse proxy; `ecosystem.config.cjs` runs it with pm2
-(`pm2 start ecosystem.config.cjs`). It also relays drama videos from the hosts that only answer
-kissasia's referer (`/stream`), so those play on the website too; that traffic goes through your
-server. Anime genre filtering still needs the desktop app.
+Needs Node 22.5+ (built-in SQLite; data in `data/catflix.db`). Put it behind any reverse proxy;
+`ecosystem.config.cjs` runs it with pm2 (`pm2 start ecosystem.config.cjs`). For Google sign-in,
+create an OAuth client (Web application) with the redirect URI
+`<PUBLIC_URL>/auth/google/callback`. The server also forwards catalogue calls (`/api/*`) and
+relays videos from hosts that need a referer (`/stream`); that traffic goes through your server.
+Desktop builds need `VITE_BACKEND_URL` set to the server's public URL.

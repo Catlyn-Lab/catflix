@@ -1,5 +1,4 @@
 import { createResource, createSignal, For, Show } from "solid-js";
-import { A } from "@solidjs/router";
 import type { Item } from "../lib/api";
 import { ANIME_GENRES, animeList, type AnimeMode } from "../lib/sources";
 import { t } from "../lib/i18n";
@@ -99,13 +98,6 @@ export default function Anime() {
           </Show>
         </Show>
       </Show>
-
-      <footer class="foot">
-        {t("anime.footer")}{" "}
-        <A class="source-link" href="https://aniwaves.tv/" target="_blank" rel="noreferrer">
-          aniwaves.tv
-        </A>
-      </footer>
     </div>
   );
 }

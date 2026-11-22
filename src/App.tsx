@@ -4,6 +4,11 @@ import Home from "./pages/Home";
 import Browse from "./pages/Browse";
 import Anime from "./pages/Anime";
 import Drama from "./pages/Drama";
+import History from "./pages/History";
+import { AccountButton, SignInGate } from "./components/account";
+import { account, accountStatus, loadAccount } from "./lib/account";
+import { isNative } from "./lib/native";
+import { startSync } from "./lib/sync";
 import SearchPage from "./pages/Search";
 import Detail from "./pages/Detail";
 import { WatchEpisode, WatchMovie } from "./pages/Watch";
@@ -45,6 +50,9 @@ function Shell(props: RouteSectionProps) {
   const current = (name: string) => (section() === name ? "page" : undefined);
 
   onMount(() => {
+    startSync();
+    void loadAccount();
+
     // Reuse the remembered API host early so playback is not delayed.
     void import("./lib/api");
 
@@ -132,6 +140,7 @@ function Shell(props: RouteSectionProps) {
             <Globe />
             {language().toUpperCase()}
           </button>
+          <AccountButton />
         </header>
       )}
 
@@ -176,6 +185,11 @@ function Shell(props: RouteSectionProps) {
       <Show when={languageOpen()}>
         <LanguageDialog firstRun={!languageChosen()} onClose={() => setAskLanguage(false)} />
       </Show>
+
+      {/* The desktop app is for signed-in viewers; the website also welcomes guests. */}
+      <Show when={isNative() && !languageOpen() && accountStatus() !== "checking" && !account()}>
+        <SignInGate />
+      </Show>
     </>
   );
 }
@@ -189,6 +203,7 @@ export default function App() {
       <Route path="/anime" component={Anime} />
       <Route path="/drama" component={Drama} />
       <Route path="/search" component={SearchPage} />
+      <Route path="/history" component={History} />
       <Route path="/movie/:id" component={(p) => <Detail type="movie" id={p.params.id ?? ""} />} />
       <Route path="/series/:id" component={(p) => <Detail type="tv" id={p.params.id ?? ""} />} />
       <Route path="/anime/:id" component={(p) => <Detail type="anime" id={p.params.id ?? ""} />} />

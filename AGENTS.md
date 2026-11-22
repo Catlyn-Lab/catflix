@@ -22,12 +22,16 @@ It is a first-party app, not a website wrapper:
 ## The backend, in one paragraph
 
 Catflix's catalogue and playback API are served from a small set of interchangeable HTTPS hosts
-listed in `src/lib/api.ts`, with automatic failover between them. That is the whole of the
-third-party involvement: a content/playback JSON API. The one addition is description
-translation for Indonesian, which calls a public translation endpoint, also from
-`src/lib/api.ts`. Nothing else is loaded at runtime, and no credentials are required. Titles
-stream as HLS through the API's proxy, so the app never hands
-the user off to an external player or site.
+configured in `.env` (`VITE_CATALOGUE_HOSTS`, read through `src/lib/config.ts`), with automatic
+failover between them. Catflix's own server (`server/`, Node + built-in SQLite) hosts the
+website and handles Google accounts, sync of progress/history/preferences, description
+translation and generated subtitles (translator or AI). Titles stream as HLS, so the app never
+hands the user off to an external player or site.
+
+**Never commit hosts, URLs or keys.** They live in `.env` (template: `.env.example`): `VITE_*`
+values are build settings for the interface and the desktop shell (`src-tauri/build.rs` derives
+the native allow-list from them); everything else is server-only. CI writes `.env` from the
+`CATFLIX_ENV` secret. Don't name the content sources in code comments, docs or commits.
 
 If a change is about *how Catflix behaves*, it is a Catflix change. Only touch the host list or
 endpoint shapes when the API actually changes.
@@ -47,18 +51,23 @@ Keep user-facing text and docs about Catflix, not about whoever supplies the bac
 
 - `src/pages/` — `Home`, `Browse`, `Search`, `Detail`, `Watch`.
 - `src/components/` — `Player` (hls.js), shared UI, icon set.
-- `src/lib/api.ts` — the only module that knows hosts and endpoints. Keep it that way.
-- `src/lib/store.ts` — local preferences and "continue watching". Local only; nothing is sent
-  to a server. `src/lib/format.ts` — labels, proxy URL builder, formatting.
+- `src/lib/config.ts` — the `.env` build settings. `src/lib/api.ts` — catalogue endpoints and
+  failover, `backendUrl()` for Catflix's server.
+- `src/lib/store.ts` — local preferences and "continue watching"; `src/lib/sync.ts` pushes and
+  pulls them when signed in. `src/lib/account.ts` — sign-in (web cookie; app: system browser +
+  device polling). `src/lib/subtitles.ts` — generated subtitles client. `src/lib/format.ts` — labels, proxy URL builder, formatting.
 - `src/lib/i18n.ts` — the language preference and every interface string in English and
   Indonesian. New copy goes there as a phrase, never inline in a component.
   `src/lib/translate.ts` — cached translation of catalogue descriptions (`<Translated>`).
 - `src/lib/device.ts` — desktop, touch or television, decided once at start-up (`?tv=1` forces
   television). `src/lib/spatial.ts` — arrow-key focus movement for remotes.
   `src/lib/captions.ts` — parses subtitle files; the player draws the cues itself.
-- `src/lib/sources.ts` — the Anime (aniwaves) and Asian drama (kissasia) catalogues; with
+- `src/lib/sources.ts` — the Anime and Asian drama catalogues; with
   `src/lib/native.ts` and `src-tauri/src/lib.rs` (native fetch and the `stream` relay).
 - `src-tauri/` — the desktop shell (window, CSP, bundle metadata).
+- `server/` — `index.mjs` (routes, static `dist/`), `config.mjs`, `db.mjs` (migrations by
+  `user_version`), `auth.mjs`, `sync.mjs`, `subtitles.mjs`, `translate.mjs`, `ai.mjs`. No npm
+  dependencies; keep it lightweight.
 
 `docs/api.md` documents the endpoints and response shapes.
 
@@ -81,16 +90,19 @@ Keep user-facing text and docs about Catflix, not about whoever supplies the bac
 
 ```sh
 npm install
+cp .env.example .env  # then fill it in
+node server/index.mjs # Catflix's server on :8110
 npm run tauri dev     # run the app
 npm run build         # typecheck + frontend build
 npm run tauri build   # installable .app / .dmg
-npx prettier --check src
+npx prettier --check src server
 ```
 
 ## Don't
 
 - Don't add a webview of a streaming site, an embed player, or a scraping layer.
 - Don't hard-code per-title streams; always resolve them through `streams()`.
+- Don't put source hosts or secrets in code; add a setting to `.env.example` and `config`.
 - Don't rename or restructure `src/lib/api.ts` casually — host failover, request timeouts and
   the source/subtitle/quality shapes all live there.
 - Don't commit `dist/`, `node_modules/` or `src-tauri/target/`.

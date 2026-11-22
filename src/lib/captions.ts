@@ -56,12 +56,17 @@ export function parseCues(source: string): Cue[] {
 }
 
 /** Fetch and parse a subtitle file, going through the proxy if the host refuses a direct request. */
-export async function loadCues(url: string): Promise<Cue[]> {
+/**
+ * `ownServer`: a subtitle Catflix made itself. It is read from Catflix's server only, and an
+ * empty file is fine: it is still being made and fills in as it goes.
+ */
+export async function loadCues(url: string, ownServer = false): Promise<Cue[]> {
   const read = async (target: string) => {
     const response = await fetch(target);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return parseCues(await response.text());
   };
+  if (ownServer) return read(url);
   try {
     const cues = await read(url);
     if (cues.length) return cues;
@@ -69,7 +74,7 @@ export async function loadCues(url: string): Promise<Cue[]> {
     /* no CORS headers: try the readers below */
   }
   try {
-    // Some subtitle hosts send no CORS headers and challenge the proxy (dramas' cdnvideo files):
+    // Some subtitle hosts send no CORS headers and challenge the proxy (some drama subtitles):
     // the app reads them itself, a browser through the Reader.
     const cues = parseCues(await readText(url));
     if (cues.length) return cues;

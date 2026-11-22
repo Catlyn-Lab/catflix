@@ -1,19 +1,27 @@
 # Catflix API
 
-The catalogue and playback API the desktop app talks to. Plain HTTPS + JSON, no credentials, no
-SDK.
+Two APIs: the **catalogue and playback API** the interface reads titles and streams from, and
+**Catflix's own server** (`server/`), which hosts the website, keeps accounts and sync, and makes
+subtitles.
 
-The hosts are in the `HOSTS` array in `src/lib/api.ts` and are interchangeable: when one is down
-or answers `429`/`5xx`, the next is tried and the last one that worked is remembered. Implement
-that failover, not a single hard-coded host. Requests time out after 25 s. All user-facing values
-(`title`, `overview`, images) are already display-ready.
+## Configuration
 
-Hosted as a website (`server.mjs`), the app asks its own server for catalogue calls (`/api/*`)
-and the server forwards them to these hosts with the same failover: the API only allows the app's
-own origins (`tauri://localhost`, `http://localhost:1420`), so a browser on another domain is
-refused. `/api/proxy` allows any origin, so posters and video still go to the hosts directly.
+Hosts and keys are not in the repository. They live in `.env` (copy `.env.example`):
 
-## Endpoints
+- `VITE_*` values are build settings, read by `src/lib/config.ts` and baked into the interface
+  (and, for the native allow-list, into the desktop shell by `src-tauri/build.rs`). They are
+  public by nature: anything shipped to a browser can be read.
+- Everything else is read only by the server (`server/config.mjs`): Google sign-in, the AI
+  model, translators, limits. Never prefix a secret with `VITE_`.
+
+Release builds write `.env` from the `CATFLIX_ENV` repository secret.
+
+## Catalogue and playback
+
+Plain HTTPS + JSON, no credentials. The hosts (`VITE_CATALOGUE_HOSTS`) are interchangeable: when
+one is down or answers `429`/`5xx`, the next is tried and the last one that worked is
+remembered. Requests time out after 25 s. Hosted as a website, the interface asks its own server
+(`/api/*`), which forwards with the same failover.
 
 | Path | Purpose |
 | --- | --- |
@@ -26,20 +34,6 @@ refused. `/api/proxy` allows any origin, so posters and video still go to the ho
 | `GET /api/stream?type=&id=&season=&episode=` | Playback sources + subtitles |
 | `GET /api/stream/check?type=&id=&provider=` | Per-provider availability probe |
 | `GET /api/proxy?url=` | CORS/hot-link proxy; wraps stream, image and subtitle URLs |
-
-## Translation
-
-The catalogue ignores language parameters and always answers in English. For Indonesian,
-`translate(text, to)` in `src/lib/api.ts` sends a description to a public, keyless translation
-endpoint and `src/lib/translate.ts` caches the result in local storage:
-
-| Service | Request |
-| --- | --- |
-| Google Translate | `GET https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=id&dt=t&q=` |
-| MyMemory (fallback, 500 characters at most) | `GET https://api.mymemory.translated.net/get?langpair=en\|id&q=` |
-
-Neither is a contracted service: either can rate-limit or change. When both fail the English
-text is shown.
 
 ### Page
 
@@ -67,33 +61,82 @@ text is shown.
   "errors": [{ "provider": "…", "code": "…", "error": "…" }] }
 ```
 
-Sources are HLS (`.m3u8`) with separate audio and subtitle tracks; `hls.js` plays them. URLs are
-signed and expire, so refresh with a new `stream` request rather than caching the playlist
-forever. `skipProxy: true` means the URL can be fetched directly. An empty `sources` array is
-normal for titles that no source carries yet — the player offers to retry.
+Sources are HLS with separate audio and subtitle tracks; `hls.js` plays them. URLs are signed and
+expire, so refresh with a new `stream` request. An empty `sources` array is normal for titles no
+source carries yet — the player offers to retry.
 
-## Anime and Asian drama
+### Anime and Asian drama
 
-These two sections have their own catalogues, read by `src/lib/sources.ts` (the only other module
-that knows hosts) and normalised to the same `Item` / `Details` / `Episode` / `Streams` shapes.
-
-| Section | Source | How it is reached |
-| --- | --- | --- |
-| Anime | aniwaves.tv's filter page (`/filter?genre[]=&status[]=0&sort_by=members\|created_at\|title&page=`) for listings; its JSON bridge `worker8652.appleflux.workers.dev/api/aniwaves` for `search?q=`, `detail?id=&slug=-`, `resolve?id=&ep=&sv=12` | Filter page: the app's own request (`native_get`). Bridge: through `/api/proxy`, as it only allows `http://localhost:1420` as an origin. Resolved HLS plays directly. Outside the app the bridge's `list?mode=` stands in, without genre filtering. |
-| Asian drama | kissasia.biz WordPress REST (`/wp-json/wp/v2/posts?categories=&search=&slug=`, `/media?include=`); each title's playlist is a Blogger feed entry: `url\|languages\|subtitles` per episode, separated by `;` | `native_get` first, then `/api/proxy`, then the public Reader (`r.jina.ai`). Blogger answers directly. |
-
-Regions and states are WordPress category ids (China 5, South Korea 6, Philippines 7, Thailand 37,
-Japan 16, Hong Kong 14, Hollywood 15; Ongoing 12, Completed 8; Series 4, Film 9).
+These sections have their own catalogues, read by `src/lib/sources.ts` (configured by
+`VITE_ANIME_*`, `VITE_DRAMA_*`, `VITE_READER_URL`, `VITE_DIRECT_HOSTS`, `VITE_LOCKED_*`) and
+normalised to the same `Item` / `Details` / `Episode` / `Streams` shapes.
 
 ### Native helpers (`src-tauri/src/lib.rs`, `src/lib/native.ts`)
 
-A webview can't set `User-Agent` or `Referer`, and some sources refuse proxies, so the desktop
-shell has two helpers, limited to an allow-list of source hosts:
+A webview can't set `User-Agent` or `Referer`, so the desktop shell has helpers limited to an
+allow-list of hosts fixed at build time (derived from `.env`):
 
-- `native_get(url, referer?)` — a command returning `{ status, body, total }`.
+- `native_get(url, referer?)` — returns `{ status, body, total }`.
 - the `stream` scheme — `stream://localhost/?url=&referer=` (`http://stream.localhost/` on
   Windows and Android) relays one video request with the referer, in ranges of at most 8 MB.
-  Drama files on `api.flixfile.top` and `*.cdnvideo.autos` only answer kissasia's referer and play
-  through it.
+- `open_external(url)` — opens a page of Catflix's own server in the system browser (sign-in).
 
-`cargo test -- --ignored` (in `src-tauri`) checks both against the live sources.
+`cargo test -- --ignored` (in `src-tauri`) checks them live; it reads `CATFLIX_TEST_*` variables.
+
+## Catflix server
+
+`node server/index.mjs` — no dependencies beyond Node 22.5+ (`node:sqlite`). Data is one SQLite
+file (`DB_PATH`, default `data/catflix.db`). Responses are JSON; errors are
+`{ "error": "a readable sentence" }`. Cross-origin calls (the desktop app) are allowed only from
+`ALLOWED_ORIGINS`, with credentials.
+
+### Accounts (Google)
+
+| Path | Purpose |
+| --- | --- |
+| `GET /auth/google/start?return=/path` | Website sign-in: redirects to Google, then back with a `catflix_session` cookie |
+| `GET /auth/google/start?device=<id>` | Desktop sign-in, opened in the system browser |
+| `GET /auth/device/<id>` | The app polls this; answers `{ token }` once the browser sign-in finishes |
+| `GET /auth/google/callback` | Google's redirect target (`PUBLIC_URL` + this path) |
+| `GET /auth/me` | `{ user: { id, name, email, picture }, google: true }`, `401` when signed out |
+| `POST /auth/logout` | Ends the session |
+
+The website uses the HttpOnly cookie; the app sends `Authorization: Bearer <token>`. Guests can
+use the website without an account; the desktop app asks to sign in.
+
+### Sync
+
+| Path | Purpose |
+| --- | --- |
+| `GET /sync?since=<ms>` | Progress and preferences changed since the cursor, plus a new cursor |
+| `PUT /sync/progress` | `{ items: [Progress] }`; the newest `updatedAt` wins; also updates history |
+| `PUT /sync/prefs` | `{ prefs, updatedAt }` |
+| `GET /sync/history` / `DELETE /sync/history` | Watch history (one row per title), or clear it |
+
+On sign-in, everything watched as a guest on that device is uploaded and merged.
+
+### Subtitles
+
+New subtitles are made from a title's existing subtitle file, with a translator or an AI model,
+and shared with everyone who watches the same file.
+
+| Path | Purpose |
+| --- | --- |
+| `GET /subtitles/options` | `{ languages: [{ code, name }], tones, ai, signedIn }` |
+| `POST /subtitles/lookup` | `{ sources: [url] }` → `{ items: [Generated] }` already made from those files |
+| `POST /subtitles` | `{ sourceUrl, sourceLabel, targetLang, method: "translate"\|"ai", tone?, customTone? }` → `Generated` |
+| `GET /subtitles/<id>` | Status: `{ id, status: "working"\|"ready"\|"failed", cuesDone, cuesTotal, url, … }` |
+| `GET /subtitles/<id>.vtt` | The cues made so far, as WebVTT |
+
+- Translator: guests may use it, `GUEST_SUBTITLE_JOBS_PER_HOUR` per address.
+- AI: signed-in viewers only, `AI_DAILY_CHARACTERS` per day. Tones: `formal`, `neutral`,
+  `casual` (gaul), `kids`, `custom` (free text). Any OpenAI-compatible endpoint (`AI_BASE_URL`,
+  `AI_API_KEY`, `AI_MODEL`).
+- Source files are fetched by the server, which refuses private and local addresses.
+
+### Other
+
+| Path | Purpose |
+| --- | --- |
+| `GET /translate?to=&q=` | Translates a catalogue description (cached) |
+| `GET /stream?url=` | Relays a video from hosts that need a referer (`VITE_LOCKED_HOSTS`) |
