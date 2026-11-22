@@ -188,10 +188,9 @@ const en = {
   "player.leaveFullscreen": "Leave fullscreen",
 
   "account.signIn": "Sign in",
+  "account.signUp": "Sign up",
+  "account.guestHint": "Sign in to sync your progress.",
   "account.signInGoogle": "Continue with Google",
-  "account.joinTitle": "Sign in or create an account",
-  "account.joinText": "Keep your progress, history and settings on every device, and make AI subtitles.",
-  "account.joinNew": "New to Catflix? Your account is created the first time you continue.",
   "account.signOut": "Sign out",
   "account.menu": "Account",
   "account.history": "History",
@@ -415,11 +414,9 @@ const id: Record<Phrase, string> = {
   "player.leaveFullscreen": "Keluar dari layar penuh",
 
   "account.signIn": "Masuk",
+  "account.signUp": "Daftar",
+  "account.guestHint": "Masuk untuk menyinkronkan tontonan Anda.",
   "account.signInGoogle": "Lanjutkan dengan Google",
-  "account.joinTitle": "Masuk atau buat akun",
-  "account.joinText":
-    "Simpan posisi tontonan, riwayat, dan pengaturan di semua perangkat, serta buat subtitle AI.",
-  "account.joinNew": "Baru di Catflix? Akun Anda dibuat saat pertama kali melanjutkan.",
   "account.signOut": "Keluar",
   "account.menu": "Akun",
   "account.history": "Riwayat",
