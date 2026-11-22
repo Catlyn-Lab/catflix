@@ -1505,11 +1505,32 @@ html[data-device="touch"] .player[data-active="true"] .buffering .spinner {
   padding: 0.15em 0.5em;
   border-radius: 0.3em;
   background: rgba(0, 0, 0, 0.55);
-  font-size: clamp(1rem, 2.5vw, 1.9rem);
+  /* Sized by the screen's shorter side, so a phone turned sideways keeps the picture clear. */
+  font-size: clamp(0.9rem, min(2.4vw, 4.6vh), 1.9rem);
   font-weight: 550;
   line-height: 1.35;
   white-space: pre-line;
   text-shadow: 0 0.06em 0.12em rgba(0, 0, 0, 0.9);
+}
+
+/* A phone on its side (fullscreen or not): little height, so the lines sit low. */
+@media (orientation: landscape) and (max-height: 32rem) {
+  .captions {
+    left: 10%;
+    right: 10%;
+    bottom: calc(1rem + var(--safe-bottom));
+  }
+
+  .player[data-active="true"] .captions {
+    bottom: calc(6.4rem + var(--safe-bottom));
+  }
+}
+
+/* The same cues in the video's own fullscreen (iPhone, Chrome when the phone turns sideways). */
+.player video::cue {
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-weight: 550;
 }
 
 .ripple {

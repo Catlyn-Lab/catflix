@@ -12,7 +12,7 @@ import {
 import SubtitleMaker from "./SubtitleMaker";
 import { takeVideo } from "../lib/media";
 import { cueAt, loadCues, type Cue } from "../lib/captions";
-import { isTouch, usesDpad } from "../lib/device";
+import { isBackKey, isTouch, usesDpad } from "../lib/device";
 import { streamUrl } from "../lib/format";
 import { language, matchesLanguage, t } from "../lib/i18n";
 import { directionOf, moveFocus } from "../lib/spatial";
@@ -591,6 +591,61 @@ export default function Player(props: PlayerProps) {
     }
   };
 
+  /**
+   * Subtitles are drawn by the player over the video. When the video element itself goes
+   * fullscreen (iPhone's own player; Chrome on Android when the phone is turned sideways) that
+   * layer is left behind, so the same cues also go into the video's own text track, which the
+   * browser shows only then.
+   */
+  const nativeTrack: TextTrack | null = (() => {
+    try {
+      const track = video.addTextTrack("subtitles", "Catflix");
+      track.mode = "hidden";
+      return track;
+    } catch {
+      return null;
+    }
+  })();
+  const [videoFullscreen, setVideoFullscreen] = createSignal(false);
+  const checkVideoFullscreen = () => {
+    const shell = document as Document & { webkitFullscreenElement?: Element | null };
+    const own = video as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean };
+    setVideoFullscreen(
+      document.fullscreenElement === video ||
+        shell.webkitFullscreenElement === video ||
+        Boolean(own.webkitDisplayingFullscreen),
+    );
+  };
+  for (const type of [
+    "webkitbeginfullscreen",
+    "webkitendfullscreen",
+    "fullscreenchange",
+    "webkitfullscreenchange",
+  ]) {
+    video.addEventListener(type, () => setTimeout(checkVideoFullscreen, 0));
+  }
+  document.addEventListener("fullscreenchange", checkVideoFullscreen);
+  document.addEventListener("webkitfullscreenchange", checkVideoFullscreen);
+  onCleanup(() => {
+    document.removeEventListener("fullscreenchange", checkVideoFullscreen);
+    document.removeEventListener("webkitfullscreenchange", checkVideoFullscreen);
+  });
+  createEffect(() => {
+    if (!nativeTrack) return;
+    const list = cues();
+    const offset = shift();
+    for (const old of Array.from(nativeTrack.cues ?? [])) nativeTrack.removeCue(old);
+    if (typeof VTTCue === "undefined") return;
+    for (const cue of list) {
+      const start = cue.start + offset;
+      if (cue.end + offset <= 0) continue;
+      nativeTrack.addCue(new VTTCue(Math.max(0, start), cue.end + offset, cue.text));
+    }
+  });
+  createEffect(() => {
+    if (nativeTrack) nativeTrack.mode = videoFullscreen() && cues().length ? "showing" : "hidden";
+  });
+
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
       void document.exitFullscreen();
@@ -779,7 +834,7 @@ export default function Player(props: PlayerProps) {
     const typing = target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
     const direction = directionOf(key);
 
-    if (key === "Escape" || key === "GoBack" || key === "BrowserBack") {
+    if (key === "Escape" || isBackKey(event)) {
       event.preventDefault();
       if (panel()) closePanel();
       else if (usesDpad && focusedControl() && mayHide()) hide();
