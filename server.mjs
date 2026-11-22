@@ -5,8 +5,13 @@
 // failover as src/lib/api.ts). The API only allows the app's own origins, so a browser on another
 // domain is refused; asking this server instead keeps every request on the site's own origin.
 // Media is not forwarded: the app fetches it from the hosts' `/api/proxy`, which allows any origin.
+//
+// The one exception is `/stream?url=&referer=`: drama videos on hosts that only answer their own
+// site's referer (which a browser can't send). Those are relayed with that referer, range by range;
+// the desktop app does the same itself. Only the hosts in LOCKED are relayed.
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import { Readable } from "node:stream";
 
@@ -21,6 +26,12 @@ const HOSTS = [
 ];
 const TIMEOUT = 25_000;
 let preferred = 0;
+
+/** Video hosts relayed by `/stream`. */
+const LOCKED = /(^|\.)(flixfile\.top|cdnvideo\.autos)$/;
+/** Safari's own user agent: these hosts refuse imitations of Chrome and plain HTTP clients. */
+const USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -70,6 +81,45 @@ async function forward(req, res) {
   res.writeHead(last.status, { "Content-Type": "text/plain; charset=utf-8" }).end(last.text);
 }
 
+/**
+ * Relay one range of a locked video. Plain `https` rather than `fetch`: fetch adds headers of its
+ * own that these hosts take for a bot.
+ */
+function relay(req, res) {
+  const query = new URL(req.url, "http://x").searchParams;
+  let target;
+  try {
+    target = new URL(query.get("url") ?? "");
+  } catch {
+    res.writeHead(400).end("missing url");
+    return;
+  }
+  if (target.protocol !== "https:" || !LOCKED.test(target.hostname)) {
+    res.writeHead(403).end("not a relayed host");
+    return;
+  }
+  const headers = { "user-agent": USER_AGENT, accept: "*/*" };
+  const referer = query.get("referer");
+  if (referer) headers.referer = referer;
+  if (req.headers.range) headers.range = req.headers.range;
+
+  const upstream = https.get(target, { headers, timeout: TIMEOUT }, (answer) => {
+    const out = { "Cache-Control": "no-store", "Accept-Ranges": "bytes" };
+    for (const name of ["content-type", "content-length", "content-range"]) {
+      if (answer.headers[name]) out[name] = answer.headers[name];
+    }
+    res.writeHead(answer.statusCode ?? 502, out);
+    answer.pipe(res);
+  });
+  upstream.on("timeout", () => upstream.destroy(new Error("timeout")));
+  upstream.on("error", () => {
+    if (!res.headersSent) res.writeHead(502).end();
+    else res.destroy();
+  });
+  // The viewer seeked or left: stop downloading the rest of this range.
+  res.on("close", () => upstream.destroy());
+}
+
 function serveFile(req, res) {
   const pathname = path
     .normalize(decodeURIComponent(new URL(req.url, "http://x").pathname))
@@ -87,7 +137,9 @@ function serveFile(req, res) {
 
 http
   .createServer((req, res) => {
-    if (req.url.startsWith("/api/")) {
+    if (req.url.startsWith("/stream?")) {
+      relay(req, res);
+    } else if (req.url.startsWith("/api/")) {
       forward(req, res).catch(() => {
         if (!res.headersSent) res.writeHead(502).end();
       });

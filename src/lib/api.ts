@@ -19,7 +19,7 @@ const STORAGE_KEY = "catflix:host";
  * forwards to the hosts above (see `server.mjs`): the API only allows the app's own origins, so
  * a browser on another domain would be refused. Media still goes to the hosts' proxy directly.
  */
-const SAME_ORIGIN =
+export const SAME_ORIGIN =
   /^https?:$/.test(location.protocol) &&
   !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) &&
   !location.hostname.endsWith(".localhost");
