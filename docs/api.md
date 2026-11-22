@@ -134,6 +134,21 @@ and shared with everyone who watches the same file.
   `AI_API_KEY`, `AI_MODEL`).
 - Source files are fetched by the server, which refuses private and local addresses.
 
+### Alternative drama subtitles
+
+With `DRAMA_SUBTITLES=alternative` (and `SUBDL_API_KEY` and/or `OPENSUBTITLES_API_KEY`), Asian drama
+uses subtitles from SubDL, or OpenSubtitles when SubDL finds none, instead of the drama's own (which
+remain the fallback). `original`, the default, keeps the drama's own. Changing it needs only a
+server restart.
+
+| Path | Purpose |
+| --- | --- |
+| `GET /subtitles/external?title=&year=&season=&episode=` | `{ mode: "original" \| "alternative", items: [{ url, label, lang, release }] }` |
+| `GET /subtitles/external/<id>` | The file (SRT or WebVTT), downloaded once and kept in the database |
+
+Languages: `ALTERNATIVE_SUBTITLE_LANGUAGES` (default `en,id`). Files are timed for a particular
+release, so the player's Subtitles menu can move them earlier or later in 0.5 s steps.
+
 ### Other
 
 | Path | Purpose |

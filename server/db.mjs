@@ -116,6 +116,14 @@ const MIGRATIONS = [
   CREATE UNIQUE INDEX subtitles_one_each
     ON subtitles(source_hash, target_lang, method, tone, IFNULL(created_by, 0));
   `,
+  // 3: subtitle files fetched from the alternative subtitle services, kept so each is fetched once.
+  `
+  CREATE TABLE external_subtitles (
+    key         TEXT PRIMARY KEY,
+    body        TEXT NOT NULL,
+    fetched_at  INTEGER NOT NULL
+  );
+  `,
 ];
 
 const current = db.prepare("PRAGMA user_version").get().user_version;

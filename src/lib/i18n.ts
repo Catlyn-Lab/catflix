@@ -212,6 +212,10 @@ const en = {
   "history.clear": "Clear history",
 
   "player.subtitlesUnavailable": "Subtitles for this title are not available here",
+  "player.subtitlesEarlier": "Subtitles earlier (−0.5 s)",
+  "player.subtitlesLater": "Subtitles later (+0.5 s)",
+  "player.subtitleShift": "Subtitles {seconds} s",
+  "player.subtitleInSync": "Subtitles back to their own timing",
   "player.subtitleNotice": "Not available: only a notice from its site",
   "maker.create": "Create subtitle…",
   "maker.title": "Create a subtitle",
@@ -442,6 +446,10 @@ const id: Record<Phrase, string> = {
   "history.clear": "Hapus riwayat",
 
   "player.subtitlesUnavailable": "Subtitle untuk judul ini tidak tersedia di sini",
+  "player.subtitlesEarlier": "Subtitle lebih awal (−0,5 dtk)",
+  "player.subtitlesLater": "Subtitle lebih lambat (+0,5 dtk)",
+  "player.subtitleShift": "Subtitle {seconds} dtk",
+  "player.subtitleInSync": "Subtitle kembali ke waktu aslinya",
   "player.subtitleNotice": "Tidak tersedia: hanya berisi pemberitahuan dari situsnya",
   "maker.create": "Buat subtitle…",
   "maker.title": "Buat subtitle",
