@@ -272,6 +272,8 @@ export function Rail(props: { heading: string; items: Item[] }) {
   const [edges, setEdges] = createSignal({ start: true, end: false });
 
   const measure = () => {
+    // The track only exists once the rail has items to show.
+    if (!track) return;
     setEdges({
       start: track.scrollLeft < 8,
       end: track.scrollLeft + track.clientWidth > track.scrollWidth - 8,
@@ -284,7 +286,7 @@ export function Rail(props: { heading: string; items: Item[] }) {
   onMount(() => {
     measure();
     const watcher = new ResizeObserver(measure);
-    watcher.observe(track);
+    if (track) watcher.observe(track);
     onCleanup(() => watcher.disconnect());
   });
 

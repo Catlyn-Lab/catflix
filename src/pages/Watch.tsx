@@ -128,7 +128,11 @@ export function WatchEpisode() {
           title={data().show.title}
           poster={data().show.poster ?? data().show.backdrop}
           backdrop={data().show.backdrop}
-          subtitle={`${code(episodeNumber())} · ${(data().episode as Episode).name ?? t("detail.episode", { number: episodeNumber() })}`}
+          subtitle={
+            kind() === "tv"
+              ? `${code(episodeNumber())} · ${(data().episode as Episode).name ?? code(episodeNumber())}`
+              : code(episodeNumber())
+          }
           seasonNumber={seasonNumber()}
           episodeNumber={episodeNumber()}
           next={

@@ -192,8 +192,12 @@ export default function Home() {
             <Rail heading={t("home.continue")} items={resume()} />
           </Show>
           <For each={rails()}>{(rail) => <Rail heading={heading(rail.key)} items={rail.items} />}</For>
-          <Rail heading={t("home.animeRail")} items={extra()?.anime ?? []} />
-          <Rail heading={t("home.dramaRail")} items={extra()?.drama ?? []} />
+          <Show when={extra()?.anime.length}>
+            <Rail heading={t("home.animeRail")} items={extra()!.anime} />
+          </Show>
+          <Show when={extra()?.drama.length}>
+            <Rail heading={t("home.dramaRail")} items={extra()!.drama} />
+          </Show>
 
           <Show when={!rails().length}>
             <Empty title={t("home.emptyTitle")} hint={t("home.emptyHint")} />

@@ -195,6 +195,7 @@ export default function App() {
       <Route path="/drama/:id" component={(p) => <Detail type="drama" id={p.params.id ?? ""} />} />
       <Route path="/watch/movie/:id" component={WatchMovie} />
       <Route path="/watch/episode/:seriesId/:season/:episode" component={WatchEpisode} />
+      <Route path="/watch/episode/:kind/:seriesId/:season/:episode" component={WatchEpisode} />
       <Route path="*" component={Home} />
     </Route>
   );

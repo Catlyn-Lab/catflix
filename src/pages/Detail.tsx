@@ -99,7 +99,11 @@ export default function Detail(props: Props) {
     if (props.type === "movie") return watchedFilm() ? t("detail.resume") : t("detail.play");
     const target = nextUp();
     if (!target) return t("detail.play");
-    const code = episodeLabel(target.season_number, target.episode_number);
+    // Anime and dramas are one season long: "Episode 4" reads better than "S1E4".
+    const code =
+      props.type === "tv"
+        ? episodeLabel(target.season_number, target.episode_number)
+        : t("detail.episode", { number: target.episode_number });
     return t(started() ? "detail.resumeCode" : "detail.playCode", { code });
   };
 

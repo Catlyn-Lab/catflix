@@ -18,6 +18,7 @@ const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW
 const ALLOWED: &[&str] = &[
     "aniwaves.tv",
     "kissasia.biz",
+    "www.blogger.com",
     "api.flixfile.top",
     "cdnvideo.autos",
     "sooplive.com",

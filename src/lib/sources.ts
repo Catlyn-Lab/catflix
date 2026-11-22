@@ -8,7 +8,15 @@
  * here and nowhere else.
  */
 
-import { params, type Details, type Episode, type Item, type Season, type Streams } from "./api";
+import {
+  params,
+  url as apiUrl,
+  type Details,
+  type Episode,
+  type Item,
+  type Season,
+  type Streams,
+} from "./api";
 import { isNative, nativeGet, relayedUrl } from "./native";
 
 const HOSTS = [
@@ -59,29 +67,41 @@ async function json<T>(url: string): Promise<T> {
  */
 const READER = "https://r.jina.ai/";
 
-/** Read a URL as JSON: the app's own request first, then Catflix's proxy, then the Reader. */
+/**
+ * Read a URL as JSON: the app's own request first, then the Reader, then Catflix's proxy (which
+ * kissasia usually challenges, so it comes last).
+ */
 async function readJson<T>(target: string): Promise<T> {
-  const attempts: (() => Promise<unknown>)[] = [
-    ...(isNative() ? [async () => JSON.parse((await nativeGet(target, KISSASIA_REFERER)).body)] : []),
-    async () => (await proxied(target)).json(),
+  return JSON.parse(await readText(target)) as T;
+}
+
+/** Read a URL as text through the same chain as `readJson`. */
+async function readText(target: string): Promise<string> {
+  const attempts: (() => Promise<string>)[] = [
+    ...(isNative() ? [async () => (await nativeGet(target, KISSASIA_REFERER)).body] : []),
     async () => {
       const response = await attempt(`${READER}${target}`, "application/json");
       if (!response.ok) throw new Error(`the reader answered ${response.status}`);
       const payload = (await response.json()) as { data?: { content?: string } };
-      return JSON.parse(payload.data?.content ?? "null");
+      if (!payload.data?.content) throw new Error("the reader returned nothing");
+      return payload.data.content;
     },
+    async () => (await proxied(target)).text(),
   ];
   let lastError: Error = new Error("the source could not be read");
   for (const read of attempts) {
     try {
-      const payload = await read();
-      if (payload) return payload as T;
+      const text = await read();
+      if (text.trim()) return text;
     } catch (error) {
       lastError = error as Error;
     }
   }
   throw lastError;
 }
+
+/** kissasia's uploads refuse hot-linking, so posters load through Catflix's proxy. */
+const poster = (url?: string | null) => (url ? apiUrl(`/api/proxy?${params({ url })}`) : null);
 
 /** The aniwaves bridge only allows `http://localhost:1420`, so it is read through our proxy. */
 async function bridged<T>(path: string): Promise<T> {
@@ -177,9 +197,6 @@ const FILTERS: Record<AnimeMode, { sort: string; status?: number }> = {
   az: { sort: "title" },
 };
 
-const unescape = (text: string) =>
-  new DOMParser().parseFromString(text, "text/html").body.textContent ?? text;
-
 /** The site's filter page, read by the app itself and taken apart into items. */
 async function animeFilter(mode: AnimeMode, page: number, genre?: number) {
   const filter = FILTERS[mode];
@@ -198,7 +215,7 @@ async function animeFilter(mode: AnimeMode, page: number, genre?: number) {
     const score = card.querySelector(".m-item.rated span")?.textContent?.trim() ?? "";
     items.push({
       id,
-      title: unescape(title),
+      title: decode(title),
       type: "anime",
       image,
       poster: image,
@@ -255,9 +272,9 @@ export async function animeDetails(id: string): Promise<Details> {
   return {
     success: true,
     id: String(payload.id),
-    title: payload.title,
+    title: decode(payload.title),
     type: "anime",
-    overview: payload.synopsis ?? null,
+    overview: payload.synopsis ? decode(payload.synopsis) : null,
     poster: payload.image ?? null,
     backdrop: payload.coverUrl ?? payload.image ?? null,
     genres: payload.genres ?? [],
@@ -295,8 +312,8 @@ type BridgeSource = {
 };
 
 /**
- * Resolve one episode to a playable source. The CDN playlist allows the app's origin, so it is
- * played directly; `proxy=1` would wrap it in the bridge, which refuses the app's origin.
+ * Resolve one episode to a playable source. `proxy=1` would wrap it in the bridge, which refuses
+ * the app's origin, so Catflix's own proxy carries it instead.
  */
 export async function animeStreams(id: string, episode: number): Promise<Streams> {
   const payload = await bridged<BridgeSource>(`/resolve?${params({ id, ep: episode, sv: 12 })}`);
@@ -310,8 +327,8 @@ export async function animeStreams(id: string, episode: number): Promise<Streams
         quality: payload.quality && payload.quality !== "auto" ? payload.quality : "auto",
         type: "hls",
         server: payload.serverName ?? "aniwaves",
-        // The CDN answers the app's origin with CORS, so no proxy hop is needed.
-        skipProxy: true,
+        // The CDN sends no CORS headers, so the playlist and its segments go through the proxy.
+        skipProxy: false,
       },
     ],
     subtitles: (payload.subtitles ?? []).map((entry) => ({
@@ -355,17 +372,9 @@ type WpPost = {
   meta?: { episode_or_runtime?: string; release_year?: string; release_status?: string };
 };
 
+/** Every HTML entity, named or numeric, decoded by the browser's own parser. */
 const decode = (text: string) =>
-  text
-    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCharCode(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCharCode(parseInt(code, 16)))
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;|&apos;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&hellip;/g, "…")
-    .replace(/&mdash;/g, "—")
-    .replace(/&ndash;/g, "–");
+  text.includes("&") ? (new DOMParser().parseFromString(text, "text/html").body.textContent ?? text) : text;
 
 const strip = (html: string) =>
   decode(html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]+>/g, " "))
@@ -375,11 +384,11 @@ const strip = (html: string) =>
 /** One post as an `Item`; the region shown is the first regional category. */
 const dramaItem = (post: WpPost, posters: Map<number, string>): Item => {
   const region = DRAMA_REGIONS.find((entry) => post.categories?.includes(entry.id))?.name;
-  const image = post.featured_media ? (posters.get(post.featured_media) ?? null) : null;
+  const image = post.featured_media ? poster(posters.get(post.featured_media)) : null;
   return {
     id: post.slug,
     title: decode(strip(post.title.rendered)),
-    type: "tv",
+    type: "drama",
     image,
     poster: image,
     year: post.meta?.release_year ?? post.date.slice(0, 4),
@@ -438,7 +447,8 @@ export async function dramaSearch(term: string) {
 async function playlists(postId: string) {
   let content = "";
   for (const blog of PLAYLIST_BLOGS) {
-    const entry = await json<{ entry?: { content?: { $t?: string } } }>(
+    // Blogger sends no CORS headers, so the feed is read through the same chain as kissasia.
+    const entry = await readJson<{ entry?: { content?: { $t?: string } } }>(
       `https://www.blogger.com/feeds/${blog}/posts/default/${postId}?alt=json`,
     ).catch(() => null);
     content = entry?.entry?.content?.$t ?? "";
@@ -465,7 +475,20 @@ type WpDetail = WpPost & {
   content: { rendered: string };
 };
 
-async function dramaPost(slug: string) {
+/** Detail, episodes and playback all need the same post: read it once per title. */
+const posts = new Map<string, Promise<WpDetail>>();
+
+function dramaPost(slug: string) {
+  let pending = posts.get(slug);
+  if (!pending) {
+    pending = readPost(slug);
+    posts.set(slug, pending);
+    pending.catch(() => posts.delete(slug));
+  }
+  return pending;
+}
+
+async function readPost(slug: string) {
   const posts = await readJson<WpDetail[]>(
     `${KISSASIA}/wp-json/wp/v2/posts?${params({
       slug,
@@ -479,7 +502,9 @@ async function dramaPost(slug: string) {
 export async function dramaDetails(slug: string): Promise<Details> {
   const post = await dramaPost(slug);
   const posters = await postersFor([post.featured_media ?? 0]);
-  const synopsis = strip(post.content.rendered).replace(/^(Description|Trailer)\s*/i, "");
+  // The body is an accordion; the description is its first real paragraph.
+  const paragraph = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(post.content.rendered)?.[1] ?? "";
+  const synopsis = strip(paragraph);
   const region = DRAMA_REGIONS.filter((entry) => post.categories?.includes(entry.id)).map(
     (entry) => entry.name,
   );
@@ -487,10 +512,10 @@ export async function dramaDetails(slug: string): Promise<Details> {
     success: true,
     id: post.slug,
     title: decode(strip(post.title.rendered)),
-    type: "tv",
+    type: "drama",
     overview: synopsis || null,
-    poster: post.featured_media ? (posters.get(post.featured_media) ?? null) : null,
-    backdrop: post.featured_media ? (posters.get(post.featured_media) ?? null) : null,
+    poster: post.featured_media ? poster(posters.get(post.featured_media)) : null,
+    backdrop: post.featured_media ? poster(posters.get(post.featured_media)) : null,
     genres: region,
     year: post.meta?.release_year ?? post.date.slice(0, 4),
     release_date: post.date,
