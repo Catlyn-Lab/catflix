@@ -17,7 +17,7 @@ import { Readable } from "node:stream";
 import { config, root } from "./config.mjs";
 import "./db.mjs";
 import { currentUser, handleAuth } from "./auth.mjs";
-import { cors, fail, send } from "./http.mjs";
+import { cors, fail, send, subresourceHeaders } from "./http.mjs";
 import { handleSubtitles } from "./subtitles.mjs";
 import { handleExternal } from "./external.mjs";
 import { handleSync } from "./sync.mjs";
@@ -81,7 +81,13 @@ async function forward(req, res) {
 const locked = (hostname) =>
   config.lockedHosts.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
 
-/** Relay one range of a locked video. Plain `https`: fetch adds headers these hosts flag as a bot. */
+/** Headers a browser sends for a media element but not for a page; the hosts tell bots by them. */
+const MEDIA_HEADERS = subresourceHeaders("video");
+
+/**
+ * Relay one range of a locked video or its subtitle. Plain `https`: fetch adds headers these
+ * hosts flag as a bot. Without the media headers they answer a notice file instead of subtitles.
+ */
 function relay(req, res, url) {
   let target;
   try {
@@ -90,8 +96,7 @@ function relay(req, res, url) {
     return fail(res, 400, "missing url");
   }
   if (target.protocol !== "https:" || !locked(target.hostname)) return fail(res, 403, "not a relayed host");
-  const headers = { "user-agent": USER_AGENT, accept: "*/*" };
-  if (config.lockedReferer) headers.referer = config.lockedReferer;
+  const headers = { "user-agent": USER_AGENT, accept: "*/*", ...MEDIA_HEADERS };
   if (req.headers.range) headers.range = req.headers.range;
 
   const upstream = https.get(target, { headers, timeout: TIMEOUT }, (answer) => {

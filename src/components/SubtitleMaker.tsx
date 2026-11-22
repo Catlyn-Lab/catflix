@@ -117,10 +117,10 @@ export default function SubtitleMaker(props: {
     setError("");
     try {
       const made = await createSubtitle({
-        sourceUrl: chosen.url,
+        sourceUrl: chosen.source ?? chosen.url,
         sourceLabel: props.sourceName(chosen),
         targetLang: target(),
-        titleSources: props.all.map((entry) => entry.url),
+        titleSources: props.all.map((entry) => entry.source ?? entry.url),
         method: method(),
         tone: method() === "ai" ? tone() : undefined,
         customTone: method() === "ai" && tone() === "custom" ? custom() : undefined,

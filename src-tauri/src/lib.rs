@@ -1,7 +1,8 @@
 //! Catflix's native side: the window, plus two small network helpers the webview can't do itself.
 //!
-//! * `native_get` reads a page or JSON document the way a browser would. Some catalogues sit
-//!   behind bot checks that refuse proxies, and a webview cannot set `User-Agent` or `Referer`.
+//! * `native_get` reads a page, JSON document, subtitle or media file the way a browser would.
+//!   Some catalogues sit behind bot checks that refuse proxies, and a webview cannot set
+//!   `User-Agent`, `Referer` or the client hints a media element sends.
 //! * The `stream` scheme relays a video file with the referer its host insists on, passing the
 //!   player's `Range` requests through so seeking works.
 
@@ -53,13 +54,32 @@ struct Page {
     total: Option<u64>,
 }
 
+/// Headers a browser sends for a subresource (a track or a media file) but not for a page.
+/// Some drama hosts only hand out the real subtitle when all of them are there: without them
+/// they answer a 30-second notice cue repeated for three hours.
+fn subresource(request: reqwest::RequestBuilder, dest: &str) -> reqwest::RequestBuilder {
+    request
+        .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .header("sec-ch-ua", "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"")
+        .header("sec-ch-ua-mobile", "?0")
+        .header("sec-ch-ua-platform", "\"macOS\"")
+        .header("sec-fetch-dest", dest)
+        .header("sec-fetch-mode", "cors")
+        .header("sec-fetch-site", "cross-site")
+}
+
+/// `kind`: `page` (default), `subtitle` or `media`; the last two are asked for like a player.
 #[tauri::command]
-async fn native_get(url: String, referer: Option<String>) -> Result<Page, String> {
+async fn native_get(url: String, referer: Option<String>, kind: Option<String>) -> Result<Page, String> {
     let target = allowed(&url)?;
-    let mut request = client()
-        .get(target)
-        .header(header::ACCEPT, "text/html,application/json;q=0.9,*/*;q=0.8")
-        .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9");
+    let request = client().get(target);
+    let mut request = match kind.as_deref() {
+        Some("subtitle") => subresource(request, "track").header(header::ACCEPT, "*/*"),
+        Some("media") => subresource(request, "video").header(header::ACCEPT, "*/*"),
+        _ => request
+            .header(header::ACCEPT, "text/html,application/json;q=0.9,*/*;q=0.8")
+            .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9"),
+    };
     if let Some(referer) = referer {
         request = request.header(header::REFERER, referer);
     }
@@ -254,12 +274,16 @@ async fn block(url: &str, referer: Option<&str>, index: u64) -> Result<Block, St
 
 async fn fetch_block(url: &str, referer: Option<&str>, index: u64) -> Result<Block, String> {
     let target = allowed(url)?;
-    let mut upstream = client().get(target).header(header::ACCEPT, "*/*").header(
+    let mut upstream = subresource(client().get(target), "video").header(header::ACCEPT, "*/*").header(
         header::RANGE,
         format!("bytes={}-{}", index * BLOCK, (index + 1) * BLOCK - 1),
     );
     if let Some(referer) = referer {
         upstream = upstream.header(header::REFERER, referer);
+        // With the client hints, the video hosts also want the page's origin, as a browser sends.
+        if let Ok(parsed) = reqwest::Url::parse(referer) {
+            upstream = upstream.header(header::ORIGIN, parsed.origin().ascii_serialization());
+        }
     }
     let response = upstream.send().await.map_err(|error| error.to_string())?;
     let status = response.status();
@@ -363,11 +387,11 @@ mod live {
     #[ignore]
     async fn sources_answer() {
         let referer = setting("CATFLIX_TEST_REFERER");
-        let json = native_get(setting("CATFLIX_TEST_JSON"), Some(referer.clone())).await.unwrap();
+        let json = native_get(setting("CATFLIX_TEST_JSON"), Some(referer.clone()), None).await.unwrap();
         println!("json {} total={:?}", json.status, json.total);
         assert_eq!(json.status, 200);
 
-        let page = native_get(setting("CATFLIX_TEST_PAGE"), None).await.unwrap();
+        let page = native_get(setting("CATFLIX_TEST_PAGE"), None, None).await.unwrap();
         println!("page {} {} bytes", page.status, page.body.len());
         assert_eq!(page.status, 200);
 
@@ -391,6 +415,6 @@ mod live {
             assert_eq!(relay(request).await.body().len(), 800);
         }
 
-        assert!(native_get("https://example.com/".into(), None).await.is_err());
+        assert!(native_get("https://example.com/".into(), None, None).await.is_err());
     }
 }
