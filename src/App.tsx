@@ -15,7 +15,6 @@ import { WatchEpisode, WatchMovie } from "./pages/Watch";
 import {
   Cat,
   FilmIcon,
-  Globe,
   HomeIcon,
   LanguageDialog,
   LotusIcon,
@@ -24,7 +23,7 @@ import {
   SparkleIcon,
 } from "./components/ui";
 import { usesDpad } from "./lib/device";
-import { language, languageChosen, t } from "./lib/i18n";
+import { languageChosen, t } from "./lib/i18n";
 import { installSpatialNavigation } from "./lib/spatial";
 
 function Shell(props: RouteSectionProps) {
@@ -32,8 +31,8 @@ function Shell(props: RouteSectionProps) {
   const navigate = useNavigate();
   const [typed, setTyped] = createSignal("");
   const [scrolled, setScrolled] = createSignal(false);
-  const [askLanguage, setAskLanguage] = createSignal(false);
-  const languageOpen = () => askLanguage() || !languageChosen();
+  // Asked once on first run; afterwards the language is changed from the Account menu.
+  const languageOpen = () => !languageChosen();
   let main!: HTMLElement;
 
   const inPlayer = () => location.pathname.startsWith("/watch/");
@@ -136,10 +135,6 @@ function Shell(props: RouteSectionProps) {
           <A class="icon-btn topbar-search" href="/search" aria-label={t("search.label")}>
             <Search />
           </A>
-          <button class="lang-btn" aria-label={t("nav.language")} onClick={() => setAskLanguage(true)}>
-            <Globe />
-            {language().toUpperCase()}
-          </button>
           <AccountButton />
         </header>
       )}
@@ -183,7 +178,7 @@ function Shell(props: RouteSectionProps) {
       )}
 
       <Show when={languageOpen()}>
-        <LanguageDialog firstRun={!languageChosen()} onClose={() => setAskLanguage(false)} />
+        <LanguageDialog firstRun={!languageChosen()} onClose={() => undefined} />
       </Show>
 
       {/* The desktop app is for signed-in viewers; the website also welcomes guests. */}

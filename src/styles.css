@@ -331,40 +331,6 @@ img {
   display: none;
 }
 
-.lang-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  height: 2.5rem;
-  padding: 0 0.85rem 0 0.7rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: blur(0.75rem);
-  backdrop-filter: blur(0.75rem);
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  cursor: pointer;
-  transition: background 0.16s;
-}
-
-.lang-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.lang-btn svg {
-  width: 1.1rem;
-  height: 1.1rem;
-  color: var(--text-dim);
-}
-
-.topbar .searchbox + .lang-btn,
-.topbar .topbar-search + .lang-btn {
-  margin-left: -0.75rem;
-}
-
 .tabbar {
   display: none;
 }
@@ -2155,7 +2121,7 @@ html[data-device="touch"] .desk {
   color: var(--text-faint);
 }
 
-/* ---------- account ---------- */
+/* ---------- account (top bar button and menu) ---------- */
 
 .account {
   position: relative;
@@ -2168,29 +2134,77 @@ html[data-device="touch"] .desk {
   flex: none;
 }
 
-.avatar-btn {
-  display: grid;
-  place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  padding: 0;
-  border: 1px solid var(--ink-line);
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--ink-high);
-  color: var(--text);
-  font-weight: 650;
-  font-size: 0.85rem;
-  cursor: pointer;
+.person-icon,
+.menu-icon,
+.chevron {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.avatar-btn img {
+.account-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 2.75rem;
+  padding: 0 0.8rem 0 0.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(0.75rem);
+  backdrop-filter: blur(0.75rem);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.16s;
+}
+
+.account-btn:hover,
+.account-btn[data-open] {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.account-btn .chevron {
+  width: 1rem;
+  height: 1rem;
+  color: var(--text-dim);
+  transition: transform 0.2s var(--ease);
+}
+
+.account-btn[data-open] .chevron {
+  transform: rotate(180deg);
+}
+
+.account-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.account-avatar .person-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.account-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.avatar-btn:focus-visible,
+.account-btn:focus-visible,
 .account-menu a:focus-visible,
 .account-menu button:focus-visible,
 .link-btn:focus-visible,
@@ -2203,52 +2217,203 @@ html[data-device="touch"] .desk {
 
 .account-menu {
   position: absolute;
-  top: calc(100% + 0.5rem);
+  top: calc(100% + 0.6rem);
   right: 0;
   z-index: 60;
-  min-width: 15rem;
-  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(20rem, calc(100vw - 1.5rem));
+  padding: 0.85rem;
   border: 1px solid var(--ink-line);
-  border-radius: var(--radius);
-  background: var(--ink-raised);
-  box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.5);
+  border-radius: 1.1rem;
+  background: rgba(16, 14, 22, 0.97);
+  box-shadow: 0 1.25rem 3rem rgba(0, 0, 0, 0.55);
 }
 
-.account-who {
+.account-card {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem;
+  border: 1px solid var(--ink-line);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.account-card .account-avatar {
+  width: 2.9rem;
+  height: 2.9rem;
+  border: 1px solid var(--ink-line);
+}
+
+.account-card .account-avatar .person-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.account-card p {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  padding: 0.6rem 0.75rem 0.7rem;
-  margin: 0 0 0.3rem;
-  border-bottom: 1px solid var(--ink-line);
+  min-width: 0;
+  margin: 0;
 }
 
-.account-who small {
-  color: var(--text-faint);
-  font-size: 0.78rem;
+.account-card strong {
+  font-size: 0.98rem;
+}
+
+.account-card small {
+  color: var(--text-dim);
+  font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.account-menu a,
-.account-menu button {
+.account-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.account-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  height: 2.75rem;
+  border: 1px solid var(--ink-line);
+  border-radius: 0.75rem;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    background 0.16s,
+    color 0.16s;
+}
+
+.account-actions button[data-primary] {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--accent-soft);
+}
+
+.account-actions button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.account-actions button[data-primary]:hover:not(:disabled) {
+  color: var(--accent-soft);
+}
+
+.account-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.account-actions svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.account-note {
+  margin: -0.1rem 0.2rem 0;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.account-row {
   display: block;
   width: 100%;
-  padding: 0.6rem 0.75rem;
+  padding: 0.65rem 0.8rem;
   border: 0;
-  border-radius: 0.6rem;
+  border-radius: 0.65rem;
   background: none;
   color: var(--text-dim);
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.account-menu a:hover,
-.account-menu button:hover {
-  background: var(--ink-high);
+.account-row:hover {
+  background: rgba(255, 255, 255, 0.07);
   color: var(--text);
+}
+
+.account-language {
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--ink-line);
+}
+
+.account-section {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0.2rem 0.55rem;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.account-section svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.account-languages {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.account-languages button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 2.75rem;
+  padding: 0 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.account-languages button:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.account-languages button[data-active] {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--accent-soft);
+}
+
+.account-languages .flag {
+  flex: none;
+  width: 1.6rem;
+  height: auto;
+  border-radius: 0.2rem;
+}
+
+.account-languages svg:last-child:not(.flag) {
+  width: 1rem;
+  height: 1rem;
+  margin-left: auto;
 }
 
 .link-btn {
@@ -2269,48 +2434,6 @@ html[data-device="touch"] .desk {
 .google-btn {
   gap: 0.6rem;
   margin-top: 0.5rem;
-}
-
-/* The guest's sign-in / sign-up panel under "Sign in". */
-.account-join {
-  width: min(19rem, calc(100vw - 2rem));
-  padding: 0.5rem 0.75rem 0.85rem;
-}
-
-.account-join .account-who {
-  padding: 0.5rem 0 0.75rem;
-}
-
-.account-join .account-who small {
-  white-space: normal;
-  line-height: 1.45;
-}
-
-.account-menu.account-join .google-btn {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-top: 0.4rem;
-  padding: 0.7rem 1rem;
-  border-radius: 999px;
-  background: #fff;
-  color: #1f1f1f;
-  font-weight: 600;
-  text-align: center;
-}
-
-.account-menu.account-join .google-btn:hover {
-  background: #ececec;
-  color: #1f1f1f;
-}
-
-.account-join .dialog-note,
-.account-fine {
-  display: block;
-  margin: 0.6rem 0 0;
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--text-faint);
 }
 
 /* ---------- "Create subtitle" (inside the player's settings sheet) ---------- */
@@ -2640,7 +2763,7 @@ html[data-device="tv"] .dialog-option:focus-visible small {
   color: #4a4658;
 }
 
-html[data-device="tv"] .lang-btn:focus-visible,
+html[data-device="tv"] .account-btn:focus-visible,
 html[data-device="tv"] .btn:focus-visible,
 html[data-device="tv"] .icon-btn:focus-visible,
 html[data-device="tv"] .pill-btn:focus-visible {

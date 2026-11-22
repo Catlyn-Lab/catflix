@@ -1,7 +1,7 @@
 /** The account button in the top bar, and the sign-in screen the desktop app opens on. */
 
 import { A } from "@solidjs/router";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   account,
   accountStatus,
@@ -11,9 +11,10 @@ import {
   signIn,
   signingIn,
   signOut,
+  type User,
 } from "../lib/account";
-import { t } from "../lib/i18n";
-import { Cat, State } from "./ui";
+import { LANGUAGES, language, setLanguage, t, type Language } from "../lib/i18n";
+import { Cat, Check, Globe, State } from "./ui";
 
 /** Google's "G", drawn here: Catflix loads nothing from Google's servers. */
 export const GoogleMark = () => (
@@ -42,7 +43,57 @@ const initials = (name?: string | null) =>
     .slice(0, 2)
     .toUpperCase();
 
-/** "Sign in" for guests, opening a small Google sign-in / sign-up panel; the avatar and a small menu once signed in. */
+const PersonIcon = () => (
+  <svg viewBox="0 0 24 24" class="person-icon" aria-hidden="true">
+    <circle cx="12" cy="8" r="3.6" />
+    <path d="M4.8 20c.9-3.6 3.7-5.6 7.2-5.6s6.3 2 7.2 5.6" />
+  </svg>
+);
+
+const SignInIcon = () => (
+  <svg viewBox="0 0 24 24" class="menu-icon" aria-hidden="true">
+    <path d="M10 4h7.5A1.5 1.5 0 0 1 19 5.5v13a1.5 1.5 0 0 1-1.5 1.5H10" />
+    <path d="M4 12h10M10.5 8.5 14 12l-3.5 3.5" />
+  </svg>
+);
+
+const Chevron = () => (
+  <svg viewBox="0 0 24 24" class="chevron" aria-hidden="true">
+    <path d="m7 10 5 5 5-5" />
+  </svg>
+);
+
+/** Small flags for the language choice. */
+const Flag = (props: { id: Language }) =>
+  props.id === "id" ? (
+    <svg viewBox="0 0 30 20" class="flag" aria-hidden="true">
+      <rect width="30" height="10" fill="#e70011" />
+      <rect y="10" width="30" height="10" fill="#fff" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 30 20" class="flag" aria-hidden="true">
+      <rect width="30" height="20" fill="#fff" />
+      <path
+        d="M0 0h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30V20H0z"
+        fill="#b22234"
+      />
+      <rect width="13" height="10.77" fill="#3c3b6e" />
+    </svg>
+  );
+
+const Avatar = (props: { user: User | null }) => (
+  <span class="account-avatar">
+    <Show when={props.user} fallback={<PersonIcon />}>
+      {(user) => (
+        <Show when={user().avatar} fallback={<span>{initials(user().name)}</span>}>
+          <img src={user().avatar!} alt="" referrerpolicy="no-referrer" />
+        </Show>
+      )}
+    </Show>
+  </span>
+);
+
+/** "Account" in the top bar: sign in / sign up, history and the language, in one menu. */
 export function AccountButton() {
   const [open, setOpen] = createSignal(false);
   let root!: HTMLDivElement;
@@ -60,78 +111,96 @@ export function AccountButton() {
     });
   });
 
+  const join = () => {
+    setOpen(false);
+    void signIn();
+  };
+
   return (
     <div class="account" ref={root}>
-      <Show
-        when={account()}
-        fallback={
-          <>
-            <button
-              class="lang-btn"
-              aria-haspopup="dialog"
-              aria-expanded={open()}
-              onClick={() => setOpen(!open())}
-            >
-              <GoogleMark />
-              <span class="account-label">{t("account.signIn")}</span>
-            </button>
-            <Show when={open()}>
-              <div class="account-menu account-join" role="dialog" aria-label={t("account.joinTitle")}>
-                <p class="account-who">
-                  <strong>{t("account.joinTitle")}</strong>
-                  <small>{t("account.joinText")}</small>
-                </p>
-                <Show when={canSignIn()} fallback={<p class="dialog-note">{t("account.notSetUp")}</p>}>
-                  <button
-                    class="btn btn-primary google-btn"
-                    ref={(element) => queueMicrotask(() => element.focus())}
-                    onClick={() => void signIn()}
-                  >
-                    <GoogleMark />
-                    {t("account.signInGoogle")}
-                  </button>
-                  <small class="account-fine">{t("account.joinNew")}</small>
-                </Show>
-              </div>
-            </Show>
-          </>
-        }
+      <button
+        class="account-btn"
+        aria-haspopup="menu"
+        aria-expanded={open()}
+        data-open={open() || undefined}
+        onClick={() => setOpen(!open())}
       >
-        {(user) => (
-          <>
+        <Avatar user={account()} />
+        <span class="account-label">{t("account.menu")}</span>
+        <Chevron />
+      </button>
+
+      <Show when={open()}>
+        <div class="account-menu" role="menu" aria-label={t("account.menu")}>
+          <div class="account-card">
+            <Avatar user={account()} />
+            <p>
+              <strong>{account()?.name ?? t("account.menu")}</strong>
+              <small>{account()?.email ?? t("account.guestHint")}</small>
+            </p>
+          </div>
+
+          <Show
+            when={account()}
+            fallback={
+              <>
+                <div class="account-actions">
+                  <button role="menuitem" disabled={!canSignIn()} onClick={join}>
+                    <SignInIcon />
+                    {t("account.signIn")}
+                  </button>
+                  <button role="menuitem" data-primary disabled={!canSignIn()} onClick={join}>
+                    <PersonIcon />
+                    {t("account.signUp")}
+                  </button>
+                </div>
+                <Show when={!canSignIn()}>
+                  <p class="account-note">{t("account.notSetUp")}</p>
+                </Show>
+              </>
+            }
+          >
+            <A class="account-row" href="/history" role="menuitem" onClick={() => setOpen(false)}>
+              {t("account.history")}
+            </A>
             <button
-              class="avatar-btn"
-              aria-label={t("account.menu")}
-              aria-haspopup="menu"
-              aria-expanded={open()}
-              onClick={() => setOpen(!open())}
+              class="account-row"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                void signOut();
+              }}
             >
-              <Show when={user().avatar} fallback={<span>{initials(user().name)}</span>}>
-                <img src={user().avatar!} alt="" referrerpolicy="no-referrer" />
-              </Show>
+              {t("account.signOut")}
             </button>
-            <Show when={open()}>
-              <div class="account-menu" role="menu">
-                <p class="account-who">
-                  <strong>{user().name}</strong>
-                  <small>{user().email}</small>
-                </p>
-                <A href="/history" role="menuitem" onClick={() => setOpen(false)}>
-                  {t("account.history")}
-                </A>
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    setOpen(false);
-                    void signOut();
-                  }}
-                >
-                  {t("account.signOut")}
-                </button>
-              </div>
-            </Show>
-          </>
-        )}
+          </Show>
+
+          <div class="account-language">
+            <p class="account-section">
+              <Globe />
+              {t("nav.language")}
+            </p>
+            <div class="account-languages">
+              <For each={[...LANGUAGES].reverse()}>
+                {(entry) => (
+                  <button
+                    role="menuitemradio"
+                    aria-checked={language() === entry.id}
+                    data-active={language() === entry.id || undefined}
+                    lang={entry.id}
+                    onClick={() => setLanguage(entry.id)}
+                  >
+                    <Flag id={entry.id} />
+                    <span>{entry.id === "id" ? "Bahasa" : entry.name}</span>
+                    <Show when={language() === entry.id}>
+                      <Check />
+                    </Show>
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        </div>
       </Show>
     </div>
   );
