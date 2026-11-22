@@ -1267,6 +1267,7 @@ export default function Player(props: PlayerProps) {
           >
             <SubtitleMaker
               sources={sources()}
+              all={subtitles()}
               sourceName={captionName}
               onCreated={addGenerated}
               onBack={() => {
