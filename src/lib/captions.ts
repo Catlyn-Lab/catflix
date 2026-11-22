@@ -1,6 +1,7 @@
 /** Subtitle files (WebVTT or SubRip) parsed into cues the player draws itself. */
 
 import { proxied } from "./format";
+import { isNative } from "./native";
 import { readText } from "./sources";
 
 export type Cue = { start: number; end: number; text: string };
@@ -67,6 +68,16 @@ export async function loadCues(url: string, ownServer = false): Promise<Cue[]> {
     return parseCues(await response.text());
   };
   if (ownServer) return read(url);
+  // The app reads a drama subtitle with a player's own headers first: a bare request gets a
+  // notice file (no dialogue) from some hosts instead of the subtitles.
+  if (isNative()) {
+    try {
+      const cues = parseCues(await readText(url, "subtitle"));
+      if (cues.length) return cues;
+    } catch {
+      /* fall through to a plain request */
+    }
+  }
   try {
     const cues = await read(url);
     if (cues.length) return cues;
@@ -74,9 +85,10 @@ export async function loadCues(url: string, ownServer = false): Promise<Cue[]> {
     /* no CORS headers: try the readers below */
   }
   try {
-    // Some subtitle hosts send no CORS headers and challenge the proxy (some drama subtitles):
-    // the app reads them itself, a browser through the Reader.
-    const cues = parseCues(await readText(url));
+    // Some subtitle hosts send no CORS headers and challenge the proxy. The app reads them
+    // itself, with the headers its own player element would send; in a browser, through the
+    // Reader.
+    const cues = parseCues(await readText(url, "subtitle"));
     if (cues.length) return cues;
   } catch {
     /* fall through to the proxy */

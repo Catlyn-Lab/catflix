@@ -10,7 +10,7 @@ import { db } from "./db.mjs";
 import { TONES, languageName, translateWithAi } from "./ai.mjs";
 import { translateLines } from "./translate.mjs";
 import { externalFile, externalIdOf } from "./external.mjs";
-import { allow, clientIp, fail, readJson, send } from "./http.mjs";
+import { allow, clientIp, fail, readJson, send, subresourceHeaders } from "./http.mjs";
 
 /** Languages offered in the "Create subtitle" menu (codes the translators understand). */
 export const LANGUAGES = [
@@ -73,7 +73,12 @@ async function fetchSource(url) {
   if (!addresses.length || addresses.some((entry) => privateAddress(entry.address))) {
     throw new Error("that address is not allowed");
   }
-  const response = await fetch(target, { signal: AbortSignal.timeout(20_000), redirect: "error" });
+  // A player's headers: without them some hosts answer the notice file, which has no dialogue.
+  const response = await fetch(target, {
+    signal: AbortSignal.timeout(20_000),
+    redirect: "error",
+    headers: subresourceHeaders("track"),
+  });
   if (!response.ok) throw new Error(`the subtitle answered ${response.status}`);
   const text = await response.text();
   if (text.length > MAX_SOURCE) throw new Error("the subtitle file is too large");

@@ -366,7 +366,8 @@ export default function Player(props: PlayerProps) {
   };
 
   /** The title's own subtitles: the ones a new subtitle can be made from. */
-  const sources = () => subtitles().filter((entry) => !entry.generated && !replaced().has(entry.url));
+  const sources = () =>
+    subtitles().filter((entry) => !entry.generated && !replaced().has(entry.source ?? entry.url));
   const percentOf = (entry: Subtitle) =>
     entry.generated?.total ? Math.floor((entry.generated.done / entry.generated.total) * 100) : 0;
 
@@ -511,7 +512,7 @@ export default function Player(props: PlayerProps) {
       const auto = preferredCaption(list);
       if (auto >= 0) pickTrack(auto, false);
       // Subtitles made earlier from these files (by anyone) join the list after the title's own.
-      void generatedFor(list.map((entry) => entry.url)).then((made) => {
+      void generatedFor(list.map((entry) => entry.source ?? entry.url)).then((made) => {
         if (!made.length || payload() !== fresh) return;
         setSubtitles([...list, ...made]);
         if (auto < 0 && !loadPrefs().subtitlesOff) {

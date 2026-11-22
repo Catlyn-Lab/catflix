@@ -3,6 +3,25 @@ import { config } from "./config.mjs";
 
 const MAX_BODY = 1024 * 1024;
 
+/**
+ * Headers a browser sends for a subresource (a subtitle track, a media file) but not for a page.
+ * Some drama hosts answer a bare request with a notice file instead of the real subtitle.
+ */
+export function subresourceHeaders(dest = "track") {
+  return {
+    "accept-language": "en-US,en;q=0.9",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "sec-fetch-dest": dest,
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    ...(config.lockedReferer
+      ? { referer: config.lockedReferer, origin: new URL(config.lockedReferer).origin }
+      : {}),
+  };
+}
+
 export function send(res, status, body, headers = {}) {
   const json = typeof body === "string" ? body : JSON.stringify(body);
   res.writeHead(status, {
