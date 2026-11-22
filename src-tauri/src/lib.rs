@@ -343,26 +343,25 @@ fn parse_range(value: &str) -> Option<(u64, Option<u64>)> {
 /// Catflix's own server (`VITE_BACKEND_URL`), fixed when the app is built.
 const BACKEND: &str = env!("CATFLIX_BACKEND");
 
-/// Open a page of Catflix's server in the system browser: Google sign-in happens there.
+/// Open a page of Catflix's server in the system browser: Google sign-in happens there. The
+/// opener plugin does it on every platform, Android included (where `open`/`xdg-open` don't exist).
 #[tauri::command]
-fn open_external(url: String) -> Result<(), String> {
+fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
     let parsed = reqwest::Url::parse(&url).map_err(|_| "that address is not valid".to_string())?;
     let backend = reqwest::Url::parse(BACKEND).map_err(|_| "no Catflix server is set".to_string())?;
     if parsed.origin() != backend.origin() {
         return Err("only Catflix's own pages open in the browser".into());
     }
-    #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg(parsed.as_str()).spawn();
-    #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", parsed.as_str()]).spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let result = std::process::Command::new("xdg-open").arg(parsed.as_str()).spawn();
-    result.map(|_| ()).map_err(|error| error.to_string())
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![native_get, open_external])
         .register_asynchronous_uri_scheme_protocol("stream", |_context, request, responder| {
             tauri::async_runtime::spawn(async move {

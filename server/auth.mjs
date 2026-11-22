@@ -162,7 +162,12 @@ export async function handleAuth(req, res, url) {
 
     if (flow.device) {
       devices.set(flow.device, { token: createSession(user.id, "app"), expires: now + 10 * 60_000 });
-      return page(res, 200, "Signed in to Catflix", "You can close this tab and go back to the app.");
+      return page(
+        res,
+        200,
+        "Signed in to Catflix",
+        "Go back to Catflix on your app or TV: it continues by itself. You can close this page.",
+      );
     }
     const token = createSession(user.id, "web");
     res.writeHead(302, {

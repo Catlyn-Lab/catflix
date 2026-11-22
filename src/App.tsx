@@ -6,8 +6,7 @@ import Anime from "./pages/Anime";
 import Drama from "./pages/Drama";
 import History from "./pages/History";
 import { AccountButton, SignInGate } from "./components/account";
-import { account, accountStatus, loadAccount } from "./lib/account";
-import { isNative } from "./lib/native";
+import { account, accountStatus, loadAccount, needsAccount } from "./lib/account";
 import { startSync } from "./lib/sync";
 import { installMediaApproval } from "./lib/media";
 import SearchPage from "./pages/Search";
@@ -183,8 +182,8 @@ function Shell(props: RouteSectionProps) {
         <LanguageDialog firstRun={!languageChosen()} onClose={() => undefined} />
       </Show>
 
-      {/* The desktop app is for signed-in viewers; the website also welcomes guests. */}
-      <Show when={isNative() && !languageOpen() && accountStatus() !== "checking" && !account()}>
+      {/* The apps and televisions are for signed-in viewers; the website also welcomes guests. */}
+      <Show when={needsAccount() && !languageOpen() && accountStatus() !== "checking" && !account()}>
         <SignInGate />
       </Show>
     </>
