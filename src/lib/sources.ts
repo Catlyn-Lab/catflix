@@ -266,28 +266,55 @@ type BridgeDetail = BridgeItem & {
   episodes?: { ep: number; sub?: boolean; dub?: boolean }[];
 };
 
+/** Detail and episodes come from the same answer: ask the bridge once per title. */
+const animeRecords = new Map<string, Promise<BridgeDetail>>();
+
+function animeRecord(id: string) {
+  let pending = animeRecords.get(id);
+  if (!pending) {
+    pending = bridged<BridgeDetail>(`/detail?${params({ id, slug: "-" })}`);
+    animeRecords.set(id, pending);
+    pending.catch(() => animeRecords.delete(id));
+  }
+  return pending;
+}
+
+/** New titles come without artwork in their detail; the search listing has their poster. */
+async function animePoster(id: string, title: string) {
+  const found = await animeSearch(title).catch(() => []);
+  return found.find((entry) => entry.id === id)?.image ?? found[0]?.image ?? null;
+}
+
 export async function animeDetails(id: string): Promise<Details> {
-  const payload = await bridged<BridgeDetail>(`/detail?${params({ id, slug: "-" })}`);
+  const payload = await animeRecord(id);
   if (!payload?.id) throw new Error("that anime is not listed");
+  const title = decode(payload.title);
+  const image = payload.image ?? (await animePoster(id, title));
+  const year =
+    /\b(19|20)\d{2}\b/.exec(payload.aired ?? "")?.[0] ?? (payload.year != null ? String(payload.year) : null);
   return {
     success: true,
     id: String(payload.id),
-    title: decode(payload.title),
+    title,
     type: "anime",
     overview: payload.synopsis ? decode(payload.synopsis) : null,
-    poster: payload.image ?? null,
-    backdrop: payload.coverUrl ?? payload.image ?? null,
+    poster: image,
+    backdrop: payload.coverUrl ?? image,
     genres: payload.genres ?? [],
     rating: payload.rating != null ? String(payload.rating) : null,
-    year: payload.year != null ? String(payload.year) : (payload.aired?.slice(-4) ?? null),
-    release_date: payload.aired ?? null,
+    year,
+    release_date: year,
     runtime: payload.duration ? Number(payload.duration.replace(/[^\d]/g, "")) || null : null,
   };
 }
 
-/** The episode list, in the shape the detail page already draws. */
+/**
+ * The episode list, in the shape the detail page already draws. The source has no per-episode
+ * pictures, so each episode shows the series' own art.
+ */
 export async function animeEpisodes(id: string): Promise<Season & { episodes: Episode[] }> {
-  const payload = await bridged<BridgeDetail>(`/detail?${params({ id, slug: "-" })}`);
+  const [payload, details] = await Promise.all([animeRecord(id), animeDetails(id).catch(() => null)]);
+  const still = details?.backdrop ?? details?.poster ?? null;
   const episodes = payload.episodes ?? [];
   return {
     id: 1,
@@ -299,6 +326,7 @@ export async function animeEpisodes(id: string): Promise<Season & { episodes: Ep
       episode_number: entry.ep,
       season_number: 1,
       name: `Episode ${entry.ep}`,
+      still,
     })),
   };
 }
@@ -525,6 +553,9 @@ export async function dramaDetails(slug: string): Promise<Details> {
 /** Episode count from the post body (`Total 10`) or its meta, as a one-season list. */
 export async function dramaEpisodes(slug: string): Promise<Season & { episodes: Episode[] }> {
   const post = await dramaPost(slug);
+  // No per-episode pictures here either: each episode shows the title's poster.
+  const posters = await postersFor([post.featured_media ?? 0]);
+  const still = post.featured_media ? poster(posters.get(post.featured_media)) : null;
   const total =
     Number(post.meta?.episode_or_runtime ?? 0) ||
     Number(/Total\s+(\d+)/i.exec(post.content.rendered)?.[1] ?? 0) ||
@@ -539,6 +570,7 @@ export async function dramaEpisodes(slug: string): Promise<Season & { episodes: 
       episode_number: index + 1,
       season_number: 1,
       name: `Episode ${index + 1}`,
+      still,
     })),
   };
 }

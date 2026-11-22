@@ -224,6 +224,35 @@ export default function Player(props: PlayerProps) {
     }
   };
 
+  /** True while the player muted itself to be allowed to start; the viewer's setting is untouched. */
+  let autoMuted = false;
+
+  /**
+   * Start playback. The webview refuses sound unless playback follows a click directly, and here
+   * it follows the stream lookup instead; so when sound is refused, start muted and say so. Only
+   * if even that is refused does the viewer get the "tap to play" button.
+   */
+  const start = async () => {
+    try {
+      await video.play();
+    } catch (error) {
+      if ((error as DOMException)?.name !== "NotAllowedError" || video.muted) {
+        setNeedsTap(true);
+        return;
+      }
+      autoMuted = true;
+      video.muted = true;
+      try {
+        await video.play();
+        say(t("player.autoMuted"), 4000);
+      } catch {
+        autoMuted = false;
+        video.muted = false;
+        setNeedsTap(true);
+      }
+    }
+  };
+
   /** Play one source, resuming where this title was left. */
   const play = (chosen: Source, from: number) => {
     destroyStream();
@@ -278,7 +307,7 @@ export default function Player(props: PlayerProps) {
       video.removeEventListener("loadedmetadata", once);
       if (from > 0) video.currentTime = from;
       video.playbackRate = speed();
-      void video.play().catch(() => setNeedsTap(true));
+      void start();
     };
     video.addEventListener("loadedmetadata", once);
   };
@@ -744,6 +773,11 @@ export default function Player(props: PlayerProps) {
     const onVolume = () => {
       setVolume(video.volume);
       setMuted(video.muted);
+      // A mute the player applied itself to start is not the viewer's preference.
+      if (autoMuted) {
+        if (video.muted) return;
+        autoMuted = false;
+      }
       savePrefs({ volume: video.volume, muted: video.muted });
     };
     const onEnded = () => {
