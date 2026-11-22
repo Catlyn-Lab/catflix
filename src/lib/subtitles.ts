@@ -12,6 +12,8 @@ export type Options = {
 };
 export type Generated = {
   id: number;
+  /** Made by this viewer (for a guest: by any guest). */
+  mine?: boolean;
   sourceUrl: string;
   targetLang: string;
   method: "translate" | "ai";
@@ -45,7 +47,7 @@ export async function createSubtitle(request: {
   customTone?: string;
 }) {
   const response = await call("/subtitles", { method: "POST", body: JSON.stringify(request) });
-  // The title already has this language (someone made it meanwhile): use that one.
+  // This viewer already made this one (perhaps in another tab): use it.
   if (response.status === 409) {
     const payload = (await response.json().catch(() => ({}))) as { existing?: Generated; error?: string };
     if (payload.existing) return payload.existing;
@@ -61,6 +63,7 @@ export const asSubtitle = (entry: Generated): Subtitle => ({
   lang: entry.targetLang,
   generated: {
     id: entry.id,
+    mine: Boolean(entry.mine),
     status: entry.status,
     done: entry.cuesDone,
     total: entry.cuesTotal,

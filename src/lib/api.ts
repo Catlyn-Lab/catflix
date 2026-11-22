@@ -194,6 +194,7 @@ export type Subtitle = {
   /** A subtitle Catflix made from another one (see `subtitles.ts`). */
   generated?: {
     id: number;
+    mine: boolean;
     status: "working" | "ready" | "failed";
     done: number;
     total: number;

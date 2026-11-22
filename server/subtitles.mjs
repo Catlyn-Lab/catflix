@@ -1,7 +1,7 @@
 // Generated subtitles: a title's existing subtitle, translated into another language by the
 // machine translator or by AI in a chosen tone. Results are shared by everyone and kept in the
-// database. A title gets one translator subtitle per language and one AI subtitle per language
-// and tone, never made twice (from any of the title's subtitle files).
+// database. Each viewer (all guests together count as one) makes at most one translator subtitle
+// per language and one AI subtitle per language and tone for a title, across its subtitle files.
 import crypto from "node:crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
@@ -173,8 +173,10 @@ const label = (row) => {
   return `${language} (${author ? `${author} ` : ""}${how})`;
 };
 
-const describe = (row) => ({
+/** `mine`: made by this viewer (a guest's "mine" is every guest's). */
+const describe = (row, user) => ({
   id: row.id,
+  mine: (row.created_by ?? null) === (user?.id ?? null),
   sourceUrl: row.source_url,
   targetLang: row.target_lang,
   method: row.method,
@@ -212,7 +214,7 @@ export async function handleSubtitles(req, res, url, user) {
         `SELECT * FROM subtitles WHERE source_hash IN (${sources.map(() => "?").join(",")}) AND status != 'failed' ORDER BY target_lang, method, tone`,
       )
       .all(...sources.map(sha));
-    return send(res, 200, { items: rows.map(describe) });
+    return send(res, 200, { items: rows.map((row) => describe(row, user)) });
   }
 
   if (route === "/subtitles" && req.method === "POST") {
@@ -237,7 +239,7 @@ export async function handleSubtitles(req, res, url, user) {
     }
 
     const hash = sha(sourceUrl);
-    // Not twice per title (same language, method and tone), across all of its subtitle files.
+    // Not twice per viewer and title (same language, method and tone), across its subtitle files.
     const hashes = [
       hash,
       ...(Array.isArray(body.titleSources) ? body.titleSources : [])
@@ -247,17 +249,17 @@ export async function handleSubtitles(req, res, url, user) {
     ];
     const made = db
       .prepare(
-        `SELECT * FROM subtitles WHERE source_hash IN (${hashes.map(() => "?").join(",")}) AND target_lang = ? AND method = ? AND tone = ? ORDER BY status = 'failed', id`,
+        `SELECT * FROM subtitles WHERE source_hash IN (${hashes.map(() => "?").join(",")}) AND target_lang = ? AND method = ? AND tone = ? AND IFNULL(created_by, 0) = ? ORDER BY status = 'failed', id`,
       )
-      .all(...hashes, target, method, tone);
+      .all(...hashes, target, method, tone, user?.id ?? 0);
     const ready = made.find((row) => row.status !== "failed");
     if (ready) {
       return send(res, 409, {
         error:
           method === "ai"
-            ? `this title already has a ${languageName(target)} AI subtitle in that tone`
-            : `this title already has a ${languageName(target)} subtitle`,
-        existing: describe(ready),
+            ? `you already made a ${languageName(target)} AI subtitle in that tone for this title`
+            : `you already made a ${languageName(target)} subtitle for this title`,
+        existing: describe(ready, user),
       });
     }
 
@@ -322,7 +324,7 @@ export async function handleSubtitles(req, res, url, user) {
       );
     const row = db.prepare("SELECT * FROM subtitles WHERE id = ?").get(lastInsertRowid);
     void run(row.id, cues, row);
-    return send(res, 202, describe(row));
+    return send(res, 202, describe(row, user));
   }
 
   const file = /^\/subtitles\/(\d+)\.vtt$/.exec(route);
@@ -338,7 +340,7 @@ export async function handleSubtitles(req, res, url, user) {
   const status = /^\/subtitles\/(\d+)$/.exec(route);
   if (status) {
     const row = db.prepare("SELECT * FROM subtitles WHERE id = ?").get(Number(status[1]));
-    return row ? send(res, 200, describe(row)) : fail(res, 404, "no such subtitle");
+    return row ? send(res, 200, describe(row, user)) : fail(res, 404, "no such subtitle");
   }
 
   return fail(res, 404, "not found");

@@ -37,41 +37,61 @@ export default function SubtitleMaker(props: {
   const [method, setMethod] = createSignal<"translate" | "ai">("translate");
   const [tone, setTone] = createSignal<Tone>("casual");
 
-  /** The title has its own subtitle in this language. */
-  const own = (code: string, name: string) => {
+  /** A subtitle (the title's own) is in this language. */
+  const inLanguage = (entry: Subtitle, code: string, name: string) => {
     const base = code.toLowerCase().split("-")[0];
-    const named = new RegExp(`\\b${name.split(" ")[0]}\\b`, "i");
-    return props.all.some((entry) => {
-      if (entry.generated) return false;
-      const lang = (entry.lang ?? "").toLowerCase();
-      return lang === code.toLowerCase() || lang.split(/[-_]/)[0] === base || named.test(entry.label ?? "");
-    });
+    const lang = (entry.lang ?? "").toLowerCase();
+    return (
+      lang === code.toLowerCase() ||
+      lang.split(/[-_]/)[0] === base ||
+      new RegExp(`\\b${name.split(" ")[0]}\\b`, "i").test(entry.label ?? "")
+    );
   };
-  /** A subtitle was already made in this language this way (and, for AI, in this tone). */
-  const made = (code: string, how: "translate" | "ai", withTone?: Tone) =>
+  /** The title has this language already, its own or made by anyone. */
+  const has = (code: string, name: string) =>
+    props.all.some((entry) => (entry.generated ? entry.lang === code : inLanguage(entry, code, name)));
+  /** This viewer already made one in this language this way (and, for AI, in this tone). */
+  const mineMade = (code: string, how: "translate" | "ai", withTone?: Tone) =>
     props.all.some(
       (entry) =>
-        entry.generated &&
+        entry.generated?.mine &&
         entry.lang === code &&
         entry.generated.method === how &&
         (how === "translate" || entry.generated.tone === withTone),
     );
+  /** The language of the subtitle being translated from. */
+  const sameAsSource = (code: string, name: string) => {
+    const chosen = props.sources[source()];
+    return Boolean(chosen && inLanguage(chosen, code, name));
+  };
   /**
-   * One translator subtitle per language (none where the title has its own), and one AI subtitle
-   * per language and tone: with AI only the tones already made are closed.
+   * Each viewer (guests together) makes one translator subtitle per language and one AI subtitle
+   * per language and tone, even where the title already has that language from someone else.
    */
   const taken = (code: string, name: string) =>
-    method() === "translate" && (own(code, name) || made(code, "translate"));
-  const toneTaken = (entry: Tone) => entry !== "custom" && made(target(), "ai", entry);
+    sameAsSource(code, name) || (method() === "translate" && mineMade(code, "translate"));
+  const takenLabel = (code: string, name: string) =>
+    sameAsSource(code, name)
+      ? t("maker.sameAsSource", { language: name })
+      : t("maker.youMade", { language: name });
+  const toneTaken = (entry: Tone) => entry !== "custom" && mineMade(target(), "ai", entry);
 
   const free = () => (options()?.languages ?? []).filter((entry) => !taken(entry.code, entry.name));
   const [target, setTarget] = createSignal("");
-  // Once the languages are known, start on the viewer's own language if it is still open.
+  // Start on a language the title lacks (the viewer's own first), else the viewer's own language.
   createEffect(() => {
     const open = free();
     if (open.some((entry) => entry.code === target())) return;
     const mine = language() === "id" ? "id" : "en";
-    setTarget((open.find((entry) => entry.code === mine) ?? open[0])?.code ?? "");
+    const missing = open.filter((entry) => !has(entry.code, entry.name));
+    setTarget(
+      (
+        missing.find((entry) => entry.code === mine) ??
+        open.find((entry) => entry.code === mine) ??
+        missing[0] ??
+        open[0]
+      )?.code ?? "",
+    );
   });
   // Move off a tone that already exists for the chosen language.
   createEffect(() => {
@@ -136,7 +156,7 @@ export default function SubtitleMaker(props: {
                 selected={entry.code === target()}
                 disabled={taken(entry.code, entry.name)}
               >
-                {taken(entry.code, entry.name) ? t("maker.available", { language: entry.name }) : entry.name}
+                {taken(entry.code, entry.name) ? takenLabel(entry.code, entry.name) : entry.name}
               </option>
             )}
           </For>

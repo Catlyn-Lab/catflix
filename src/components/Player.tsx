@@ -67,6 +67,9 @@ const clock = (seconds: number) => {
 const clamp = (value: number, low = 0, high = 1) => Math.min(Math.max(value, low), high);
 
 /** "Subtitles • English (2)" reads better as "English (2)" under a Subtitles heading. */
+/** The line some sites put into their subtitle files when they are shown outside their own pages. */
+const NOTICE = /surreptitiously using content|support the original site/i;
+
 const captionName = (entry: Subtitle) =>
   (entry.label ?? entry.language ?? entry.lang ?? "Subtitles").replace(/^subtitles?\s*[•·:–-]\s*/i, "");
 
@@ -383,6 +386,25 @@ export default function Player(props: PlayerProps) {
   );
   onCleanup(() => clearInterval(generatedTimer));
 
+  /** Subtitle files found to carry their site's notice against showing them elsewhere. */
+  const noticed = new Set<string>();
+  /** The best other track for the one at `index`: same language first, then English. */
+  const otherTrack = (index: number) => {
+    const list = subtitles();
+    const current = list[index];
+    const languageOf = (entry: Subtitle) =>
+      (entry.lang || captionName(entry)).toLowerCase().split(/[\s_-]/)[0];
+    const open = list
+      .map((entry, at) => ({ entry, at }))
+      .filter(({ entry, at }) => at !== index && !noticed.has(entry.url));
+    return (
+      (
+        open.find(({ entry }) => current && languageOf(entry) === languageOf(current)) ??
+        open.find(({ entry }) => matchesLanguage(entry, "en"))
+      )?.at ?? -1
+    );
+  };
+
   /** Show one subtitle file, or none. A choice made by the viewer is remembered. */
   const pickTrack = (index: number, byViewer = true) => {
     setTrack(index);
@@ -396,7 +418,15 @@ export default function Player(props: PlayerProps) {
     if (!entry) return;
     loadCues(entry.url, Boolean(entry.generated))
       .then((loaded) => {
-        if (track() === index) setCues(loaded);
+        if (track() !== index) return;
+        // Chosen automatically but the file carries its site's "not allowed here" notice: prefer
+        // another track in the same language, or English. A viewer's own choice is kept as it is.
+        if (!byViewer && loaded.some((cue) => NOTICE.test(cue.text))) {
+          noticed.add(entry.url);
+          const other = otherTrack(index);
+          if (other >= 0) return pickTrack(other, false);
+        }
+        setCues(loaded);
       })
       .catch(() => {
         if (track() !== index) return;
