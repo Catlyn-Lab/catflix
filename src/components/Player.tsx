@@ -348,7 +348,7 @@ export default function Player(props: PlayerProps) {
   };
 
   /** The title's own subtitles: the ones a new subtitle can be made from. */
-  const sources = () => subtitles().filter((entry) => !entry.generated);
+  const sources = () => subtitles().filter((entry) => !entry.generated && !replaced().has(entry.url));
   const percentOf = (entry: Subtitle) =>
     entry.generated?.total ? Math.floor((entry.generated.done / entry.generated.total) * 100) : 0;
 
@@ -388,6 +388,9 @@ export default function Player(props: PlayerProps) {
 
   /** Subtitle files found to carry their site's notice against showing them elsewhere. */
   const noticed = new Set<string>();
+  /** Files that are nothing but that notice: no subtitles at all, as far as Catflix is concerned. */
+  const [replaced, setReplaced] = createSignal<ReadonlySet<string>>(new Set());
+  let replacedNoticed = false;
   /** The best other track for the one at `index`: same language first, then English. */
   const otherTrack = (index: number) => {
     const list = subtitles();
@@ -421,10 +424,22 @@ export default function Player(props: PlayerProps) {
         if (track() !== index) return;
         // Chosen automatically but the file carries its site's "not allowed here" notice: prefer
         // another track in the same language, or English. A viewer's own choice is kept as it is.
-        if (!byViewer && loaded.some((cue) => NOTICE.test(cue.text))) {
-          noticed.add(entry.url);
+        const notices = loaded.filter((cue) => NOTICE.test(cue.text)).length;
+        if (notices) noticed.add(entry.url);
+        // Only the notice, no dialogue: the site gives other apps a replacement file.
+        const onlyNotice = notices > 0 && notices >= loaded.length * 0.9;
+        if (onlyNotice) setReplaced((known) => new Set([...known, entry.url]));
+        if (!byViewer && notices) {
           const other = otherTrack(index);
           if (other >= 0) return pickTrack(other, false);
+          if (onlyNotice) {
+            setTrack(-1);
+            if (!replacedNoticed) {
+              replacedNoticed = true;
+              say(t("player.subtitlesUnavailable"), 4000);
+            }
+            return;
+          }
         }
         setCues(loaded);
       })
@@ -607,7 +622,9 @@ export default function Player(props: PlayerProps) {
             hint:
               entry.generated?.status === "working"
                 ? t("maker.inProgress", { percent: percentOf(entry) })
-                : undefined,
+                : replaced().has(entry.url)
+                  ? t("player.subtitleNotice")
+                  : undefined,
             active: track() === index,
             pick: () => pickTrack(index),
           })),
