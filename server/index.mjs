@@ -162,8 +162,44 @@ async function route(req, res) {
   return fail(res, 404, "not found");
 }
 
+/**
+ * Sent with every answer. The policy lets the page run only its own scripts (and Cloudflare's
+ * analytics beacon), talk to HTTPS hosts, and never be framed by another site.
+ */
+const SECURITY_HEADERS = {
+  "Strict-Transport-Security": "max-age=15552000; includeSubDomains",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "X-Frame-Options": "DENY",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    "script-src 'self' https://static.cloudflareinsights.com",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' blob: data: https:",
+    "font-src 'self' data:",
+    "connect-src 'self' https:",
+    "worker-src 'self' blob:",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    // Only where the site itself is served over HTTPS (not a local run over plain HTTP).
+    ...(config.secureCookies ? ["upgrade-insecure-requests"] : []),
+  ].join("; "),
+};
+
 http
   .createServer((req, res) => {
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
+    // Cloudflare says how the visitor came in: never serve anything over plain HTTP.
+    if (req.headers["x-forwarded-proto"] === "http" && config.secureCookies) {
+      res.writeHead(301, { Location: `${config.publicUrl}${req.url}` });
+      return void res.end();
+    }
     route(req, res).catch((error) => {
       if (error.status) return void (!res.headersSent && fail(res, error.status, error.message));
       console.error(req.method, req.url, error);

@@ -4,9 +4,11 @@ import "@fontsource-variable/bricolage-grotesque/wdth.css";
 import "@fontsource-variable/onest";
 import App from "./App";
 import { markDevice } from "./lib/device";
+import { installGuard } from "./lib/guard";
 import "./styles.css";
 
 markDevice();
+installGuard();
 
 const root = document.getElementById("root");
 if (root) {
