@@ -127,6 +127,10 @@ function serveFile(req, res, url) {
       ? "public, max-age=31536000, immutable"
       : "no-cache",
   });
+  // The page's link-preview tags need the site's own address, which stays out of the repository.
+  if (path.basename(file) === "index.html") {
+    return res.end(fs.readFileSync(file, "utf8").replaceAll("__SITE__", config.publicUrl));
+  }
   fs.createReadStream(file).pipe(res);
 }
 
