@@ -42,7 +42,7 @@ const initials = (name?: string | null) =>
     .slice(0, 2)
     .toUpperCase();
 
-/** "Sign in" for guests (when sign-in is set up); the avatar and a small menu once signed in. */
+/** "Sign in" for guests, opening a small Google sign-in / sign-up panel; the avatar and a small menu once signed in. */
 export function AccountButton() {
   const [open, setOpen] = createSignal(false);
   let root!: HTMLDivElement;
@@ -65,12 +65,36 @@ export function AccountButton() {
       <Show
         when={account()}
         fallback={
-          <Show when={canSignIn()}>
-            <button class="lang-btn" onClick={() => void signIn()}>
+          <>
+            <button
+              class="lang-btn"
+              aria-haspopup="dialog"
+              aria-expanded={open()}
+              onClick={() => setOpen(!open())}
+            >
               <GoogleMark />
               <span class="account-label">{t("account.signIn")}</span>
             </button>
-          </Show>
+            <Show when={open()}>
+              <div class="account-menu account-join" role="dialog" aria-label={t("account.joinTitle")}>
+                <p class="account-who">
+                  <strong>{t("account.joinTitle")}</strong>
+                  <small>{t("account.joinText")}</small>
+                </p>
+                <Show when={canSignIn()} fallback={<p class="dialog-note">{t("account.notSetUp")}</p>}>
+                  <button
+                    class="btn btn-primary google-btn"
+                    ref={(element) => queueMicrotask(() => element.focus())}
+                    onClick={() => void signIn()}
+                  >
+                    <GoogleMark />
+                    {t("account.signInGoogle")}
+                  </button>
+                  <small class="account-fine">{t("account.joinNew")}</small>
+                </Show>
+              </div>
+            </Show>
+          </>
         }
       >
         {(user) => (

@@ -188,7 +188,10 @@ const en = {
   "player.leaveFullscreen": "Leave fullscreen",
 
   "account.signIn": "Sign in",
-  "account.signInGoogle": "Sign in with Google",
+  "account.signInGoogle": "Continue with Google",
+  "account.joinTitle": "Sign in or create an account",
+  "account.joinText": "Keep your progress, history and settings on every device, and make AI subtitles.",
+  "account.joinNew": "New to Catflix? Your account is created the first time you continue.",
   "account.signOut": "Sign out",
   "account.menu": "Account",
   "account.history": "History",
@@ -200,7 +203,7 @@ const en = {
   "account.cancel": "Cancel",
   "account.offline": "Catflix could not reach its server",
   "account.offlineHint": "Check your connection and try again.",
-  "account.notSetUp": "Sign-in is not set up on this server yet.",
+  "account.notSetUp": "Sign-in is not available yet. Please try again later.",
   "account.synced": "Synced with your account",
 
   "history.title": "History",
@@ -412,7 +415,11 @@ const id: Record<Phrase, string> = {
   "player.leaveFullscreen": "Keluar dari layar penuh",
 
   "account.signIn": "Masuk",
-  "account.signInGoogle": "Masuk dengan Google",
+  "account.signInGoogle": "Lanjutkan dengan Google",
+  "account.joinTitle": "Masuk atau buat akun",
+  "account.joinText":
+    "Simpan posisi tontonan, riwayat, dan pengaturan di semua perangkat, serta buat subtitle AI.",
+  "account.joinNew": "Baru di Catflix? Akun Anda dibuat saat pertama kali melanjutkan.",
   "account.signOut": "Keluar",
   "account.menu": "Akun",
   "account.history": "Riwayat",
@@ -423,7 +430,7 @@ const id: Record<Phrase, string> = {
   "account.cancel": "Batal",
   "account.offline": "Catflix tidak dapat menjangkau servernya",
   "account.offlineHint": "Periksa koneksi Anda lalu coba lagi.",
-  "account.notSetUp": "Fitur masuk belum diatur di server ini.",
+  "account.notSetUp": "Fitur masuk belum tersedia. Silakan coba lagi nanti.",
   "account.synced": "Tersinkron dengan akun Anda",
 
   "history.title": "Riwayat",

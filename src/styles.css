@@ -2271,6 +2271,48 @@ html[data-device="touch"] .desk {
   margin-top: 0.5rem;
 }
 
+/* The guest's sign-in / sign-up panel under "Sign in". */
+.account-join {
+  width: min(19rem, calc(100vw - 2rem));
+  padding: 0.5rem 0.75rem 0.85rem;
+}
+
+.account-join .account-who {
+  padding: 0.5rem 0 0.75rem;
+}
+
+.account-join .account-who small {
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.account-menu.account-join .google-btn {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 0.4rem;
+  padding: 0.7rem 1rem;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f1f1f;
+  font-weight: 600;
+  text-align: center;
+}
+
+.account-menu.account-join .google-btn:hover {
+  background: #ececec;
+  color: #1f1f1f;
+}
+
+.account-join .dialog-note,
+.account-fine {
+  display: block;
+  margin: 0.6rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
 /* ---------- "Create subtitle" (inside the player's settings sheet) ---------- */
 
 .maker {
