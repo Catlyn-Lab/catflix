@@ -23,7 +23,7 @@ import {
   SeriesIcon,
   SparkleIcon,
 } from "./components/ui";
-import { usesDpad } from "./lib/device";
+import { isBackKey, usesDpad } from "./lib/device";
 import { languageChosen, t } from "./lib/i18n";
 import { installSpatialNavigation } from "./lib/spatial";
 
@@ -63,7 +63,7 @@ function Shell(props: RouteSectionProps) {
       const onBack = (event: KeyboardEvent) => {
         if (inPlayer() || event.defaultPrevented) return;
         const typing = (event.target as HTMLElement | null)?.tagName === "INPUT";
-        if (event.key === "GoBack" || event.key === "BrowserBack" || (event.key === "Escape" && !typing)) {
+        if (isBackKey(event) || (event.key === "Escape" && !typing)) {
           if (location.pathname !== "/") {
             event.preventDefault();
             history.back();
