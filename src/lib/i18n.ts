@@ -211,6 +211,8 @@ const en = {
   "history.guestHint": "Sign in to keep your history on all your devices.",
   "history.clear": "Clear history",
 
+  "player.subtitlesUnavailable": "Subtitles for this title are not available here",
+  "player.subtitleNotice": "Not available: only a notice from its site",
   "maker.create": "Create subtitle…",
   "maker.title": "Create a subtitle",
   "maker.from": "From",
@@ -439,6 +441,8 @@ const id: Record<Phrase, string> = {
   "history.guestHint": "Masuk agar riwayat Anda tersimpan di semua perangkat.",
   "history.clear": "Hapus riwayat",
 
+  "player.subtitlesUnavailable": "Subtitle untuk judul ini tidak tersedia di sini",
+  "player.subtitleNotice": "Tidak tersedia: hanya berisi pemberitahuan dari situsnya",
   "maker.create": "Buat subtitle…",
   "maker.title": "Buat subtitle",
   "maker.from": "Dari",

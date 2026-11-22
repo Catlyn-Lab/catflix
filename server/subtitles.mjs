@@ -32,6 +32,8 @@ export const LANGUAGES = [
 ];
 
 const BATCH = { translate: 40, ai: 20 };
+/** The line some sites put into their subtitle files when they are shown outside their own pages. */
+const NOTICE = /surreptitiously using content|support the original site/i;
 const MAX_SOURCE = 3 * 1024 * 1024;
 const today = () => new Date().toISOString().slice(0, 10);
 const sha = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -275,6 +277,11 @@ export async function handleSubtitles(req, res, url, user) {
       return fail(res, 422, `could not read that subtitle: ${error.message}`);
     }
     if (!cues.length) return fail(res, 422, "that subtitle has no lines");
+    // Some sites give other apps a file that is only their notice: there is nothing to translate.
+    const notices = cues.filter((cue) => NOTICE.test(cue.source)).length;
+    if (notices >= cues.length * 0.9) {
+      return fail(res, 422, "that subtitle only contains a notice from its site, choose another one");
+    }
 
     if (method === "ai") {
       const characters = cues.reduce((sum, cue) => sum + cue.source.length, 0);
