@@ -4,6 +4,7 @@ import { streams, type MediaType, type Source, type Streams, type Subtitle } fro
 import { animeStreams, dramaStreams } from "../lib/sources";
 import { asSubtitle, generatedFor, generatedStatus, type Generated } from "../lib/subtitles";
 import SubtitleMaker from "./SubtitleMaker";
+import { takeVideo } from "../lib/media";
 import { cueAt, loadCues, type Cue } from "../lib/captions";
 import { isTouch, usesDpad } from "../lib/device";
 import { streamUrl } from "../lib/format";
@@ -77,7 +78,8 @@ const watchKey = (props: PlayerProps) =>
 
 export default function Player(props: PlayerProps) {
   let root!: HTMLDivElement;
-  let video!: HTMLVideoElement;
+  const video = takeVideo();
+  video.addEventListener("contextmenu", (event) => event.preventDefault());
   let sheet: HTMLDivElement | undefined;
   let playButton: HTMLButtonElement | undefined;
   let hls: Hls | null = null;
@@ -924,7 +926,7 @@ export default function Player(props: PlayerProps) {
         if (event.pointerType === "mouse") wake();
       }}
     >
-      <video ref={video} playsinline onContextMenu={(event) => event.preventDefault()} />
+      {video}
 
       <Show when={art()}>
         <div class="player-art" style={{ "background-image": `url("${art()}")` }} />

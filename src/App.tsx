@@ -9,6 +9,7 @@ import { AccountButton, SignInGate } from "./components/account";
 import { account, accountStatus, loadAccount } from "./lib/account";
 import { isNative } from "./lib/native";
 import { startSync } from "./lib/sync";
+import { installMediaApproval } from "./lib/media";
 import SearchPage from "./pages/Search";
 import Detail from "./pages/Detail";
 import { WatchEpisode, WatchMovie } from "./pages/Watch";
@@ -49,6 +50,7 @@ function Shell(props: RouteSectionProps) {
   const current = (name: string) => (section() === name ? "page" : undefined);
 
   onMount(() => {
+    installMediaApproval();
     startSync();
     void loadAccount();
 
