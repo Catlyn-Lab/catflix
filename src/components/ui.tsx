@@ -164,6 +164,20 @@ export const SeriesIcon = (p: IconProps) => (
   </svg>
 );
 
+export const SparkleIcon = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" class={p.class} aria-hidden="true">
+    <path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9ZM18.5 15l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9Z" />
+  </svg>
+);
+
+export const LotusIcon = (p: IconProps) => (
+  <svg viewBox="0 0 24 24" {...stroke} class={p.class} aria-hidden="true">
+    <path d="M12 4c2.2 2 3.3 4.3 3.3 6.9 0 1.6-.6 3-1.7 4.2h-3.2a6.1 6.1 0 0 1-1.7-4.2C8.7 8.3 9.8 6 12 4Z" />
+    <path d="M4 10.5c2.4.4 4.2 1.6 5.5 3.4.6.9 1 1.9 1.3 3H5.6A6.4 6.4 0 0 1 4 12.8Z" />
+    <path d="M20 10.5c-2.4.4-4.2 1.6-5.5 3.4-.6.9-1 1.9-1.3 3h5.2A6.4 6.4 0 0 0 20 12.8Z" />
+  </svg>
+);
+
 /** The Catflix mark: a cat-eared play button. */
 export const Cat = (p: IconProps) => (
   <svg viewBox="0 0 48 44" class={p.class} aria-hidden="true">
@@ -188,6 +202,8 @@ export const Globe = (p: IconProps) => (
 
 /** Catflix link for an item. */
 export function href(item: { type: string; id: string }) {
+  if (item.type === "anime") return `/anime/${item.id}`;
+  if (item.type === "drama") return `/drama/${item.id}`;
   return `/${item.type === "movie" ? "movie" : "series"}/${item.id}`;
 }
 
@@ -200,7 +216,16 @@ export function Card(props: { item: Item }) {
   };
   const score = () => rating(props.item.rating);
   const meta = () =>
-    [year(props.item.year), props.item.type === "movie" ? t("common.film") : t("common.series")]
+    [
+      year(props.item.year),
+      props.item.type === "movie"
+        ? t("common.film")
+        : props.item.type === "anime"
+          ? t("detail.anime")
+          : props.item.type === "drama"
+            ? t("detail.drama")
+            : t("common.series"),
+    ]
       .filter(Boolean)
       .join(" · ");
   const [broken, setBroken] = createSignal(false);
@@ -247,6 +272,8 @@ export function Rail(props: { heading: string; items: Item[] }) {
   const [edges, setEdges] = createSignal({ start: true, end: false });
 
   const measure = () => {
+    // The track only exists once the rail has items to show.
+    if (!track) return;
     setEdges({
       start: track.scrollLeft < 8,
       end: track.scrollLeft + track.clientWidth > track.scrollWidth - 8,
@@ -259,7 +286,7 @@ export function Rail(props: { heading: string; items: Item[] }) {
   onMount(() => {
     measure();
     const watcher = new ResizeObserver(measure);
-    watcher.observe(track);
+    if (track) watcher.observe(track);
     onCleanup(() => watcher.disconnect());
   });
 

@@ -1,6 +1,7 @@
 import Hls from "hls.js";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { streams, type MediaType, type Source, type Streams, type Subtitle } from "../lib/api";
+import { animeStreams, dramaStreams } from "../lib/sources";
 import { cueAt, loadCues, type Cue } from "../lib/captions";
 import { isTouch, usesDpad } from "../lib/device";
 import { streamUrl } from "../lib/format";
@@ -27,6 +28,8 @@ import {
 
 export type PlayerProps = {
   type: MediaType;
+  /** Which catalogue a series came from; `tv` when unset. */
+  kind?: "tv" | "anime" | "drama";
   id: string;
   title: string;
   /** Poster of the film or series, remembered for "Continue watching". */
@@ -68,7 +71,7 @@ const captionName = (entry: Subtitle) =>
 const watchKey = (props: PlayerProps) =>
   props.type === "movie"
     ? `movie:${props.id}`
-    : `episode:${props.id}:${props.seasonNumber}:${props.episodeNumber}`;
+    : `episode:${props.kind && props.kind !== "tv" ? `${props.kind}:` : ""}${props.id}:${props.seasonNumber}:${props.episodeNumber}`;
 
 export default function Player(props: PlayerProps) {
   let root!: HTMLDivElement;
@@ -221,6 +224,35 @@ export default function Player(props: PlayerProps) {
     }
   };
 
+  /** True while the player muted itself to be allowed to start; the viewer's setting is untouched. */
+  let autoMuted = false;
+
+  /**
+   * Start playback. The webview refuses sound unless playback follows a click directly, and here
+   * it follows the stream lookup instead; so when sound is refused, start muted and say so. Only
+   * if even that is refused does the viewer get the "tap to play" button.
+   */
+  const start = async () => {
+    try {
+      await video.play();
+    } catch (error) {
+      if ((error as DOMException)?.name !== "NotAllowedError" || video.muted) {
+        setNeedsTap(true);
+        return;
+      }
+      autoMuted = true;
+      video.muted = true;
+      try {
+        await video.play();
+        say(t("player.autoMuted"), 4000);
+      } catch {
+        autoMuted = false;
+        video.muted = false;
+        setNeedsTap(true);
+      }
+    }
+  };
+
   /** Play one source, resuming where this title was left. */
   const play = (chosen: Source, from: number) => {
     destroyStream();
@@ -233,7 +265,9 @@ export default function Player(props: PlayerProps) {
     setAudio(-1);
     const url = streamUrl(chosen);
 
-    if (Hls.isSupported()) {
+    // hls.js only for playlists; a plain MP4 file goes straight to the video element.
+    const isPlaylist = chosen.type === "hls" || /\.m3u8(\?|$)/i.test(chosen.url);
+    if (isPlaylist && Hls.isSupported()) {
       hls = new Hls({ enableWorker: true, maxBufferLength: 40, backBufferLength: 30 });
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setLevels(
@@ -273,7 +307,7 @@ export default function Player(props: PlayerProps) {
       video.removeEventListener("loadedmetadata", once);
       if (from > 0) video.currentTime = from;
       video.playbackRate = speed();
-      void video.play().catch(() => setNeedsTap(true));
+      void start();
     };
     video.addEventListener("loadedmetadata", once);
   };
@@ -336,7 +370,12 @@ export default function Player(props: PlayerProps) {
     setCaption("");
     setMessage(t("player.finding"));
     try {
-      const fresh = await streams(props.type, props.id, props.seasonNumber, props.episodeNumber);
+      const fresh =
+        props.kind === "anime"
+          ? await animeStreams(props.id, props.episodeNumber ?? 1)
+          : props.kind === "drama"
+            ? await dramaStreams(props.id, props.episodeNumber ?? 1)
+            : await streams(props.type, props.id, props.seasonNumber, props.episodeNumber);
       const usable = (fresh.sources ?? []).filter((entry) => entry.url);
       if (!usable.length) {
         fail(t("player.noSource"));
@@ -734,6 +773,11 @@ export default function Player(props: PlayerProps) {
     const onVolume = () => {
       setVolume(video.volume);
       setMuted(video.muted);
+      // A mute the player applied itself to start is not the viewer's preference.
+      if (autoMuted) {
+        if (video.muted) return;
+        autoMuted = false;
+      }
       savePrefs({ volume: video.volume, muted: video.muted });
     };
     const onEnded = () => {

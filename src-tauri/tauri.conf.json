@@ -26,11 +26,11 @@
       "csp": {
         "default-src": "'self'",
         "img-src": "'self' data: blob: https:",
-        "media-src": "'self' blob: data: https:",
+        "media-src": "'self' blob: data: https: stream: http://stream.localhost",
         "style-src": "'self' 'unsafe-inline'",
         "script-src": "'self' 'wasm-unsafe-eval'",
         "worker-src": "'self' blob:",
-        "connect-src": "'self' ipc: http://ipc.localhost https:"
+        "connect-src": "'self' ipc: http://ipc.localhost https: stream: http://stream.localhost"
       }
     }
   },

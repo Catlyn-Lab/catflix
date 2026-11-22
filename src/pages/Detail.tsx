@@ -1,12 +1,34 @@
 import { A, useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createResource, createSignal, For, on, Show } from "solid-js";
 import { clean, episodeLabel, rating, runtime, year } from "../lib/format";
-import { details, season as fetchSeason, type Episode, type MediaType } from "../lib/api";
+import {
+  details,
+  season as fetchSeason,
+  type Details,
+  type Episode,
+  type ExtraType,
+  type MediaType,
+} from "../lib/api";
+import { animeDetails, animeEpisodes, dramaDetails, dramaEpisodes } from "../lib/sources";
 import { getProgress } from "../lib/store";
 import { genreName, language, seasonName, t } from "../lib/i18n";
 import { Card, Empty, Play, Star, State, Translated } from "../components/ui";
 
-type Props = { type: MediaType; id: string };
+type TitleType = MediaType | ExtraType;
+type Props = { type: TitleType; id: string };
+
+/** Anime and dramas have their own source; films and series go to the catalogue API. */
+const load = async (type: TitleType, id: string): Promise<Details> => {
+  if (type === "anime") return animeDetails(id);
+  if (type === "drama") return dramaDetails(id);
+  return details(type, id);
+};
+
+const loadSeason = async (type: TitleType, id: string, number: number) => {
+  if (type === "anime") return animeEpisodes(id);
+  if (type === "drama") return dramaEpisodes(id);
+  return fetchSeason(id, number);
+};
 
 const percent = (record: { positionSeconds: number; durationSeconds: number }) =>
   Math.min(99, Math.round((record.positionSeconds / Math.max(1, record.durationSeconds)) * 100));
@@ -15,7 +37,7 @@ export default function Detail(props: Props) {
   const navigate = useNavigate();
   const [found] = createResource(
     () => ({ type: props.type, id: props.id }),
-    (query) => details(query.type, query.id),
+    (query) => load(query.type, query.id),
   );
 
   // While another title is loading, the resource still holds the previous one. Show nothing
@@ -35,8 +57,11 @@ export default function Detail(props: Props) {
     activeSeason() ?? current()?.seasons?.find((entry) => entry.season_number > 0)?.season_number ?? 1;
 
   const [episodesList] = createResource(
-    () => (props.type === "tv" ? { id: props.id, season: seasonNumber() } : null),
-    async (query) => (await fetchSeason(query.id, query.season)).episodes ?? [],
+    () =>
+      props.type === "tv" || props.type === "anime" || props.type === "drama"
+        ? { type: props.type, id: props.id, season: seasonNumber() }
+        : null,
+    async (query) => (await loadSeason(query.type, query.id, query.season)).episodes ?? [],
   );
 
   const facts = createMemo(() => {
@@ -47,7 +72,7 @@ export default function Detail(props: Props) {
       year(item.release_date ?? item.year),
       // Indonesian abbreviates hours as "j" (jam).
       language() === "id" ? runtime(item.runtime).replace("h", "j") : runtime(item.runtime),
-      props.type === "tv" && seasons
+      (props.type === "tv" || props.type === "drama") && seasons
         ? seasons === 1
           ? t("detail.seasonsOne")
           : t("detail.seasons", { count: seasons })
@@ -66,14 +91,19 @@ export default function Detail(props: Props) {
   const play = (episode?: Episode) => {
     if (props.type === "movie") return void navigate(`/watch/movie/${props.id}`);
     const target = episode ?? nextUp();
-    if (target) navigate(`/watch/episode/${props.id}/${target.season_number}/${target.episode_number}`);
+    if (target)
+      navigate(`/watch/episode/${props.type}/${props.id}/${target.season_number}/${target.episode_number}`);
   };
 
   const playLabel = () => {
     if (props.type === "movie") return watchedFilm() ? t("detail.resume") : t("detail.play");
     const target = nextUp();
     if (!target) return t("detail.play");
-    const code = episodeLabel(target.season_number, target.episode_number);
+    // Anime and dramas are one season long: "Episode 4" reads better than "S1E4".
+    const code =
+      props.type === "tv"
+        ? episodeLabel(target.season_number, target.episode_number)
+        : t("detail.episode", { number: target.episode_number });
     return t(started() ? "detail.resumeCode" : "detail.playCode", { code });
   };
 
@@ -114,7 +144,17 @@ export default function Detail(props: Props) {
                 />
 
                 <div class="detail-body">
-                  <p class="eyebrow">{t(props.type === "movie" ? "common.film" : "common.series")}</p>
+                  <p class="eyebrow">
+                    {t(
+                      props.type === "movie"
+                        ? "common.film"
+                        : props.type === "anime"
+                          ? "detail.anime"
+                          : props.type === "drama"
+                            ? "detail.drama"
+                            : "common.series",
+                    )}
+                  </p>
                   <h1>{item().title}</h1>
                   <div class="facts">
                     <Show when={rating(item().rating)}>
@@ -144,7 +184,7 @@ export default function Detail(props: Props) {
                     <button
                       class="btn btn-primary"
                       onClick={() => play()}
-                      disabled={props.type === "tv" && !nextUp()}
+                      disabled={props.type !== "movie" && !nextUp()}
                     >
                       <Play /> {playLabel()}
                     </button>
@@ -173,7 +213,9 @@ export default function Detail(props: Props) {
               </div>
             </section>
 
-            <Show when={props.type === "tv" && (item().seasons ?? []).length}>
+            <Show
+              when={props.type === "anime" || props.type === "drama" || (item().seasons ?? []).length > 0}
+            >
               <section class="section">
                 <h2>{t("detail.episodes")}</h2>
                 <div class="tabs">

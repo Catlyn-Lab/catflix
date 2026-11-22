@@ -56,6 +56,8 @@ Keep user-facing text and docs about Catflix, not about whoever supplies the bac
 - `src/lib/device.ts` — desktop, touch or television, decided once at start-up (`?tv=1` forces
   television). `src/lib/spatial.ts` — arrow-key focus movement for remotes.
   `src/lib/captions.ts` — parses subtitle files; the player draws the cues itself.
+- `src/lib/sources.ts` — the Anime (aniwaves) and Asian drama (kissasia) catalogues; with
+  `src/lib/native.ts` and `src-tauri/src/lib.rs` (native fetch and the `stream` relay).
 - `src-tauri/` — the desktop shell (window, CSP, bundle metadata).
 
 `docs/api.md` documents the endpoints and response shapes.

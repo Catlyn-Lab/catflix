@@ -1,6 +1,14 @@
 import { useParams } from "@solidjs/router";
 import { createResource, Show } from "solid-js";
 import { details, season, type Episode } from "../lib/api";
+import {
+  animeDetails,
+  animeEpisodes,
+  animeStreams,
+  dramaDetails,
+  dramaEpisodes,
+  dramaStreams,
+} from "../lib/sources";
 import { episodeLabel } from "../lib/format";
 import Player from "../components/Player";
 import { t } from "../lib/i18n";
@@ -63,17 +71,38 @@ export function WatchMovie() {
   );
 }
 
-/** `#/watch/episode/:seriesId/:season/:episode` */
+type Kind = "tv" | "anime" | "drama";
+
+const loadShow = async (kind: Kind, id: string) => {
+  if (kind === "anime") return animeDetails(id);
+  if (kind === "drama") return dramaDetails(id);
+  return details("tv", id);
+};
+
+const loadEpisodes = async (kind: Kind, id: string, seasonNumber: number) => {
+  if (kind === "anime") return animeEpisodes(id);
+  if (kind === "drama") return dramaEpisodes(id);
+  return season(id, seasonNumber);
+};
+
+/** `#/watch/episode/:kind/:seriesId/:season/:episode` */
 export function WatchEpisode() {
-  const params = useParams<{ seriesId: string; season: string; episode: string }>();
+  const params = useParams<{ kind: string; seriesId: string; season: string; episode: string }>();
+  const kind = (): Kind => (params.kind === "anime" || params.kind === "drama" ? params.kind : "tv");
   const seasonNumber = () => Number(params.season);
   const episodeNumber = () => Number(params.episode);
+  /** A single-season source (anime, dramas) reads better as "Episode 5" than "S1E5". */
+  const code = (number: number) =>
+    kind() === "tv" ? episodeLabel(seasonNumber(), number) : t("detail.episode", { number });
 
   const [found] = createResource(
     // The episode is part of the key: moving to the next one must refresh its name and what follows.
     () => ({ id: params.seriesId, season: seasonNumber(), episode: episodeNumber() }),
     async (query) => {
-      const [show, current] = await Promise.all([details("tv", query.id), season(query.id, query.season)]);
+      const [show, current] = await Promise.all([
+        loadShow(kind(), query.id),
+        loadEpisodes(kind(), query.id, query.season),
+      ]);
       const episodes = current.episodes ?? [];
       const episode = episodes.find((entry) => entry.episode_number === query.episode);
       if (!episode) throw new Error(`episode ${query.episode} is not listed`);
@@ -94,11 +123,16 @@ export function WatchEpisode() {
       {(data) => (
         <Player
           type="tv"
+          kind={kind()}
           id={params.seriesId}
           title={data().show.title}
           poster={data().show.poster ?? data().show.backdrop}
           backdrop={data().show.backdrop}
-          subtitle={`${episodeLabel(seasonNumber(), episodeNumber())} · ${(data().episode as Episode).name ?? "Episode"}`}
+          subtitle={
+            kind() === "tv"
+              ? `${code(episodeNumber())} · ${(data().episode as Episode).name ?? code(episodeNumber())}`
+              : code(episodeNumber())
+          }
           seasonNumber={seasonNumber()}
           episodeNumber={episodeNumber()}
           next={
@@ -106,13 +140,13 @@ export function WatchEpisode() {
               ? {
                   season: seasonNumber(),
                   episode: episodeNumber() + 1,
-                  label: episodeLabel(seasonNumber(), episodeNumber() + 1),
+                  label: code(episodeNumber() + 1),
                 }
               : null
           }
           nextHref={
             data().next
-              ? `/watch/episode/${params.seriesId}/${seasonNumber()}/${episodeNumber() + 1}`
+              ? `/watch/episode/${kind()}/${params.seriesId}/${seasonNumber()}/${episodeNumber() + 1}`
               : undefined
           }
         />
