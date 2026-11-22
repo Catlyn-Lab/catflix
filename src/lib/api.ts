@@ -191,8 +191,18 @@ export type Subtitle = {
   lang?: string;
   language?: string;
   format?: string;
+  /** The original address, when `url` has been wrapped in a relay. New subtitles are made from it. */
+  source?: string;
   /** A subtitle Catflix made from another one (see `subtitles.ts`). */
-  generated?: { id: number; status: "working" | "ready" | "failed"; done: number; total: number };
+  generated?: {
+    id: number;
+    mine: boolean;
+    status: "working" | "ready" | "failed";
+    done: number;
+    total: number;
+    method: "translate" | "ai";
+    tone: string;
+  };
 };
 
 export type Streams = {

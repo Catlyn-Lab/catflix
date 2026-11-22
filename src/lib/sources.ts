@@ -20,7 +20,7 @@ import {
   type Streams,
 } from "./api";
 import { config } from "./config";
-import { isNative, nativeGet, relayedUrl } from "./native";
+import { isNative, nativeGet, relayedUrl, type NativeKind } from "./native";
 
 const HOSTS = config.catalogueHosts;
 
@@ -68,9 +68,9 @@ async function readJson<T>(target: string): Promise<T> {
 }
 
 /** Read a URL as text through the same chain as `readJson`. Subtitle files use it too. */
-export async function readText(target: string): Promise<string> {
+export async function readText(target: string, kind: NativeKind = "page"): Promise<string> {
   const attempts: (() => Promise<string>)[] = [
-    ...(isNative() ? [async () => (await nativeGet(target, DRAMA_REFERER)).body] : []),
+    ...(isNative() ? [async () => (await nativeGet(target, DRAMA_REFERER, kind)).body] : []),
     async () => {
       const response = await attempt(`${READER}${target}`, "application/json");
       if (!response.ok) throw new Error(`the reader answered ${response.status}`);
@@ -582,23 +582,36 @@ export async function dramaStreams(slug: string, episode: number): Promise<Strea
   // Referer-locked hosts play through a relay: the app's own, or the website's server
   // (`server.mjs`). In local development in a plain browser there is none, and they can't play.
   const locked = config.lockedHosts.test(host);
+  /** The address to play from, through the relay when the host insists on its own site. */
+  const via = (url: string) =>
+    !config.lockedHosts.test(new URL(url).hostname)
+      ? url
+      : isNative()
+        ? relayedUrl(url, DRAMA_REFERER)
+        : SAME_ORIGIN
+          ? backendUrl(`/stream?${params({ url })}`)
+          : url;
+  /**
+   * A locked host hands out a notice file instead of the subtitles unless the request looks like
+   * a player's, so a browser reads those files through the server's relay; in the app they stay
+   * as they are, and are read with a player's headers (`captions.ts`). The original address is
+   * kept either way, to make new subtitles from.
+   */
+  const subtitle = (url: string) =>
+    SAME_ORIGIN && config.lockedHosts.test(new URL(url).hostname)
+      ? backendUrl(`/stream?${params({ url })}`)
+      : url;
   return {
     success: true,
     provider: "drama",
     sources: [
       {
-        url: !locked
-          ? chosen.url
-          : isNative()
-            ? relayedUrl(chosen.url, DRAMA_REFERER)
-            : SAME_ORIGIN
-              ? backendUrl(`/stream?${params({ url: chosen.url })}`)
-              : chosen.url,
+        url: via(chosen.url),
         type: chosen.url.includes(".m3u8") ? "hls" : "mp4",
         server: "drama",
         skipProxy: locked || config.directHosts.test(host),
       },
     ],
-    subtitles: chosen.subtitles.map((entry) => ({ ...entry })),
+    subtitles: chosen.subtitles.map((entry) => ({ ...entry, url: subtitle(entry.url), source: entry.url })),
   };
 }

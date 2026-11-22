@@ -12,8 +12,12 @@ export type Options = {
 };
 export type Generated = {
   id: number;
+  /** Made by this viewer (for a guest: by any guest). */
+  mine?: boolean;
   sourceUrl: string;
   targetLang: string;
+  method: "translate" | "ai";
+  tone: string;
   label: string;
   status: "working" | "ready" | "failed";
   cuesDone: number;
@@ -36,11 +40,20 @@ export async function createSubtitle(request: {
   sourceUrl: string;
   sourceLabel?: string;
   targetLang: string;
+  /** All of the title's subtitle files: a language already made from any of them is refused. */
+  titleSources?: string[];
   method: "translate" | "ai";
   tone?: Tone;
   customTone?: string;
 }) {
-  return json<Generated>(await call("/subtitles", { method: "POST", body: JSON.stringify(request) }));
+  const response = await call("/subtitles", { method: "POST", body: JSON.stringify(request) });
+  // This viewer already made this one (perhaps in another tab): use it.
+  if (response.status === 409) {
+    const payload = (await response.json().catch(() => ({}))) as { existing?: Generated; error?: string };
+    if (payload.existing) return payload.existing;
+    throw new Error(payload.error ?? "this language already exists");
+  }
+  return json<Generated>(response);
 }
 
 /** As a player subtitle entry. */
@@ -48,7 +61,15 @@ export const asSubtitle = (entry: Generated): Subtitle => ({
   url: entry.url,
   label: entry.label,
   lang: entry.targetLang,
-  generated: { id: entry.id, status: entry.status, done: entry.cuesDone, total: entry.cuesTotal },
+  generated: {
+    id: entry.id,
+    mine: Boolean(entry.mine),
+    status: entry.status,
+    done: entry.cuesDone,
+    total: entry.cuesTotal,
+    method: entry.method,
+    tone: entry.tone,
+  },
 });
 
 /** Subtitles already made from any of these source files, by anyone. */
@@ -59,6 +80,32 @@ export async function generatedFor(sources: string[]): Promise<Subtitle[]> {
       await call("/subtitles/lookup", { method: "POST", body: JSON.stringify({ sources }) }),
     );
     return items.map(asSubtitle);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Alternative subtitles for an Asian drama episode from subtitle services, when the server is set
+ * to use them (DRAMA_SUBTITLES=alternative); an empty list means "use the drama's own".
+ */
+export async function alternativeSubtitles(
+  title: string,
+  season: number,
+  episode: number,
+): Promise<Subtitle[]> {
+  const named = /^(.*?)\s*\((\d{4})\)\s*$/.exec(title.trim());
+  const query = new URLSearchParams({
+    title: named ? named[1] : title,
+    season: String(season),
+    episode: String(episode),
+    ...(named ? { year: named[2] } : {}),
+  });
+  try {
+    const { mode, items } = await json<{ mode: string; items: Subtitle[] }>(
+      await call(`/subtitles/external?${query}`),
+    );
+    return mode === "alternative" ? items : [];
   } catch {
     return [];
   }

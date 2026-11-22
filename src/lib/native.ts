@@ -12,11 +12,26 @@ export const isNative = () => internals() !== undefined;
 
 export type NativePage = { status: number; body: string; total: number | null };
 
-/** Read a page or JSON document from a Catflix source the way a browser would. */
-export async function nativeGet(url: string, referer?: string): Promise<NativePage> {
+/**
+ * What kind of thing is being read: a page or JSON document, a subtitle file, or a media file.
+ * Subtitles and media are asked for with the headers a browser's own element sends; some drama
+ * hosts answer a bare request with a notice file instead of the real subtitles.
+ */
+export type NativeKind = "page" | "subtitle" | "media";
+
+/** Read a page, document or file from a Catflix source the way a browser would. */
+export async function nativeGet(
+  url: string,
+  referer?: string,
+  kind: NativeKind = "page",
+): Promise<NativePage> {
   const shell = internals();
   if (!shell) throw new Error("only available in the app");
-  const page = (await shell.invoke("native_get", { url, referer: referer ?? null })) as NativePage;
+  const page = (await shell.invoke("native_get", {
+    url,
+    referer: referer ?? null,
+    kind,
+  })) as NativePage;
   if (page.status >= 400) throw new Error(`the source answered ${page.status}`);
   return page;
 }

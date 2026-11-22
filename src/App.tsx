@@ -6,16 +6,15 @@ import Anime from "./pages/Anime";
 import Drama from "./pages/Drama";
 import History from "./pages/History";
 import { AccountButton, SignInGate } from "./components/account";
-import { account, accountStatus, loadAccount } from "./lib/account";
-import { isNative } from "./lib/native";
+import { account, accountStatus, loadAccount, needsAccount } from "./lib/account";
 import { startSync } from "./lib/sync";
+import { installMediaApproval } from "./lib/media";
 import SearchPage from "./pages/Search";
 import Detail from "./pages/Detail";
 import { WatchEpisode, WatchMovie } from "./pages/Watch";
 import {
   Cat,
   FilmIcon,
-  Globe,
   HomeIcon,
   LanguageDialog,
   LotusIcon,
@@ -23,8 +22,8 @@ import {
   SeriesIcon,
   SparkleIcon,
 } from "./components/ui";
-import { usesDpad } from "./lib/device";
-import { language, languageChosen, t } from "./lib/i18n";
+import { isBackKey, usesDpad } from "./lib/device";
+import { languageChosen, t } from "./lib/i18n";
 import { installSpatialNavigation } from "./lib/spatial";
 
 function Shell(props: RouteSectionProps) {
@@ -32,8 +31,8 @@ function Shell(props: RouteSectionProps) {
   const navigate = useNavigate();
   const [typed, setTyped] = createSignal("");
   const [scrolled, setScrolled] = createSignal(false);
-  const [askLanguage, setAskLanguage] = createSignal(false);
-  const languageOpen = () => askLanguage() || !languageChosen();
+  // Asked once on first run; afterwards the language is changed from the Account menu.
+  const languageOpen = () => !languageChosen();
   let main!: HTMLElement;
 
   const inPlayer = () => location.pathname.startsWith("/watch/");
@@ -50,6 +49,7 @@ function Shell(props: RouteSectionProps) {
   const current = (name: string) => (section() === name ? "page" : undefined);
 
   onMount(() => {
+    installMediaApproval();
     startSync();
     void loadAccount();
 
@@ -62,7 +62,7 @@ function Shell(props: RouteSectionProps) {
       const onBack = (event: KeyboardEvent) => {
         if (inPlayer() || event.defaultPrevented) return;
         const typing = (event.target as HTMLElement | null)?.tagName === "INPUT";
-        if (event.key === "GoBack" || event.key === "BrowserBack" || (event.key === "Escape" && !typing)) {
+        if (isBackKey(event) || (event.key === "Escape" && !typing)) {
           if (location.pathname !== "/") {
             event.preventDefault();
             history.back();
@@ -136,10 +136,6 @@ function Shell(props: RouteSectionProps) {
           <A class="icon-btn topbar-search" href="/search" aria-label={t("search.label")}>
             <Search />
           </A>
-          <button class="lang-btn" aria-label={t("nav.language")} onClick={() => setAskLanguage(true)}>
-            <Globe />
-            {language().toUpperCase()}
-          </button>
           <AccountButton />
         </header>
       )}
@@ -183,11 +179,11 @@ function Shell(props: RouteSectionProps) {
       )}
 
       <Show when={languageOpen()}>
-        <LanguageDialog firstRun={!languageChosen()} onClose={() => setAskLanguage(false)} />
+        <LanguageDialog firstRun={!languageChosen()} onClose={() => undefined} />
       </Show>
 
-      {/* The desktop app is for signed-in viewers; the website also welcomes guests. */}
-      <Show when={isNative() && !languageOpen() && accountStatus() !== "checking" && !account()}>
+      {/* The apps and televisions are for signed-in viewers; the website also welcomes guests. */}
+      <Show when={needsAccount() && !languageOpen() && accountStatus() !== "checking" && !account()}>
         <SignInGate />
       </Show>
     </>

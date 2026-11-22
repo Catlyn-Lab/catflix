@@ -7,7 +7,7 @@
 //   /translate     description translation
 //   /auth/*        Google sign-in and sessions
 //   /sync/*        watch progress, history and preferences
-//   /subtitles/*   generated subtitles
+//   /subtitles/*   generated subtitles, and alternative drama subtitles (/subtitles/external)
 //   anything else  the web app (dist/)
 import fs from "node:fs";
 import http from "node:http";
@@ -17,8 +17,9 @@ import { Readable } from "node:stream";
 import { config, root } from "./config.mjs";
 import "./db.mjs";
 import { currentUser, handleAuth } from "./auth.mjs";
-import { cors, fail, send } from "./http.mjs";
+import { cors, fail, send, subresourceHeaders } from "./http.mjs";
 import { handleSubtitles } from "./subtitles.mjs";
+import { handleExternal } from "./external.mjs";
 import { handleSync } from "./sync.mjs";
 import { translateText } from "./translate.mjs";
 
@@ -40,6 +41,7 @@ const types = {
   ".woff2": "font/woff2",
   ".woff": "font/woff",
   ".ico": "image/x-icon",
+  ".webmanifest": "application/manifest+json",
 };
 
 let preferred = 0;
@@ -79,7 +81,13 @@ async function forward(req, res) {
 const locked = (hostname) =>
   config.lockedHosts.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
 
-/** Relay one range of a locked video. Plain `https`: fetch adds headers these hosts flag as a bot. */
+/** Headers a browser sends for a media element but not for a page; the hosts tell bots by them. */
+const MEDIA_HEADERS = subresourceHeaders("video");
+
+/**
+ * Relay one range of a locked video or its subtitle. Plain `https`: fetch adds headers these
+ * hosts flag as a bot. Without the media headers they answer a notice file instead of subtitles.
+ */
 function relay(req, res, url) {
   let target;
   try {
@@ -88,8 +96,7 @@ function relay(req, res, url) {
     return fail(res, 400, "missing url");
   }
   if (target.protocol !== "https:" || !locked(target.hostname)) return fail(res, 403, "not a relayed host");
-  const headers = { "user-agent": USER_AGENT, accept: "*/*" };
-  if (config.lockedReferer) headers.referer = config.lockedReferer;
+  const headers = { "user-agent": USER_AGENT, accept: "*/*", ...MEDIA_HEADERS };
   if (req.headers.range) headers.range = req.headers.range;
 
   const upstream = https.get(target, { headers, timeout: TIMEOUT }, (answer) => {
@@ -137,6 +144,9 @@ async function route(req, res) {
   if (at.startsWith("/auth/")) return handleAuth(req, res, url);
   const user = currentUser(req);
   if (at.startsWith("/sync")) return handleSync(req, res, url, user);
+  if (at === "/subtitles/external" || at.startsWith("/subtitles/external/")) {
+    return handleExternal(req, res, url);
+  }
   if (at.startsWith("/subtitles")) return handleSubtitles(req, res, url, user);
 
   if (at === "/translate") {
@@ -151,6 +161,7 @@ async function route(req, res) {
 http
   .createServer((req, res) => {
     route(req, res).catch((error) => {
+      if (error.status) return void (!res.headersSent && fail(res, error.status, error.message));
       console.error(req.method, req.url, error);
       if (!res.headersSent) fail(res, 500, "something went wrong");
       else res.destroy();

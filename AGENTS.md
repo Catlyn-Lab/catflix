@@ -96,7 +96,15 @@ npm run tauri dev     # run the app
 npm run build         # typecheck + frontend build
 npm run tauri build   # installable .app / .dmg
 npx prettier --check src server
+npm run tauri android build -- --apk  # Android phones + Android TV (one APK)
+npm run webos         # LG webOS .ipk in release/webos (opens the site; CATFLIX_WEBOS_URL)
 ```
+
+Android: set `JAVA_HOME` (Android Studio's JBR), `ANDROID_HOME`, `NDK_HOME`. OpenSSL is built into
+the app there, and its build wants `<target>-ranlib`/`-ar` on `PATH`: link them to the NDK's
+`llvm-ranlib`/`llvm-ar`. Release signing reads `src-tauri/gen/android/keystore.properties`
+(git-ignored; the keystore itself lives outside the repo). Testers get builds from Firebase App
+Distribution (`firebase appdistribution:distribute … --groups testers`).
 
 ## Don't
 

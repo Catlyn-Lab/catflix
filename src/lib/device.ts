@@ -31,3 +31,7 @@ export function markDevice() {
   const root = document.documentElement;
   root.dataset.device = isTv ? "tv" : isTouch ? "touch" : "desktop";
 }
+
+/** The remote's Back button: named by most browsers, only a key code (461) on LG webOS. */
+export const isBackKey = (event: KeyboardEvent) =>
+  event.key === "GoBack" || event.key === "BrowserBack" || event.keyCode === 461;
