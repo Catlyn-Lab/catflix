@@ -8,6 +8,11 @@ or answers `429`/`5xx`, the next is tried and the last one that worked is rememb
 that failover, not a single hard-coded host. Requests time out after 25 s. All user-facing values
 (`title`, `overview`, images) are already display-ready.
 
+Hosted as a website (`server.mjs`), the app asks its own server for catalogue calls (`/api/*`)
+and the server forwards them to these hosts with the same failover: the API only allows the app's
+own origins (`tauri://localhost`, `http://localhost:1420`), so a browser on another domain is
+refused. `/api/proxy` allows any origin, so posters and video still go to the hosts directly.
+
 ## Endpoints
 
 | Path | Purpose |

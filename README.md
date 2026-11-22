@@ -94,3 +94,15 @@ The app icon source is `app-icon.png` (1024px); regenerate the icon set with `np
 - If no source is available for a title, the player says so and offers to try again.
 - The API hosts live in one array in `src/lib/api.ts`; everything else about the app is
   Catflix's own — the UI, navigation, player and layout.
+
+## Hosting as a website
+
+```sh
+npm ci && npm run build
+node server.mjs            # serves dist/ on 127.0.0.1:8110 (PORT to change)
+```
+
+`server.mjs` also forwards catalogue calls (`/api/*`) to the API, which only allows the app's own
+origins. Put it behind any reverse proxy; `ecosystem.config.cjs` runs it with pm2
+(`pm2 start ecosystem.config.cjs`). Anime genre filtering and some drama videos need the desktop
+app's native helpers and don't work on the website.
