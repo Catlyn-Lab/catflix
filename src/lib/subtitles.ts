@@ -84,3 +84,29 @@ export async function generatedFor(sources: string[]): Promise<Subtitle[]> {
     return [];
   }
 }
+
+/**
+ * Alternative subtitles for an Asian drama episode from subtitle services, when the server is set
+ * to use them (DRAMA_SUBTITLES=alternative); an empty list means "use the drama's own".
+ */
+export async function alternativeSubtitles(
+  title: string,
+  season: number,
+  episode: number,
+): Promise<Subtitle[]> {
+  const named = /^(.*?)\s*\((\d{4})\)\s*$/.exec(title.trim());
+  const query = new URLSearchParams({
+    title: named ? named[1] : title,
+    season: String(season),
+    episode: String(episode),
+    ...(named ? { year: named[2] } : {}),
+  });
+  try {
+    const { mode, items } = await json<{ mode: string; items: Subtitle[] }>(
+      await call(`/subtitles/external?${query}`),
+    );
+    return mode === "alternative" ? items : [];
+  } catch {
+    return [];
+  }
+}

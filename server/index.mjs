@@ -7,7 +7,7 @@
 //   /translate     description translation
 //   /auth/*        Google sign-in and sessions
 //   /sync/*        watch progress, history and preferences
-//   /subtitles/*   generated subtitles
+//   /subtitles/*   generated subtitles, and alternative drama subtitles (/subtitles/external)
 //   anything else  the web app (dist/)
 import fs from "node:fs";
 import http from "node:http";
@@ -19,6 +19,7 @@ import "./db.mjs";
 import { currentUser, handleAuth } from "./auth.mjs";
 import { cors, fail, send } from "./http.mjs";
 import { handleSubtitles } from "./subtitles.mjs";
+import { handleExternal } from "./external.mjs";
 import { handleSync } from "./sync.mjs";
 import { translateText } from "./translate.mjs";
 
@@ -138,6 +139,9 @@ async function route(req, res) {
   if (at.startsWith("/auth/")) return handleAuth(req, res, url);
   const user = currentUser(req);
   if (at.startsWith("/sync")) return handleSync(req, res, url, user);
+  if (at === "/subtitles/external" || at.startsWith("/subtitles/external/")) {
+    return handleExternal(req, res, url);
+  }
   if (at.startsWith("/subtitles")) return handleSubtitles(req, res, url, user);
 
   if (at === "/translate") {

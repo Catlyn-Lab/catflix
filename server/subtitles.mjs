@@ -9,6 +9,7 @@ import { aiReady, config } from "./config.mjs";
 import { db } from "./db.mjs";
 import { TONES, languageName, translateWithAi } from "./ai.mjs";
 import { translateLines } from "./translate.mjs";
+import { externalFile, externalIdOf } from "./external.mjs";
 import { allow, clientIp, fail, readJson, send } from "./http.mjs";
 
 /** Languages offered in the "Create subtitle" menu (codes the translators understand). */
@@ -272,7 +273,8 @@ export async function handleSubtitles(req, res, url, user) {
 
     let cues;
     try {
-      cues = parseCues(await fetchSource(sourceUrl));
+      const own = externalIdOf(sourceUrl);
+      cues = parseCues(own ? await externalFile(own) : await fetchSource(sourceUrl));
     } catch (error) {
       return fail(res, 422, `could not read that subtitle: ${error.message}`);
     }

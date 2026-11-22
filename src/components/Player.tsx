@@ -2,7 +2,13 @@ import Hls from "hls.js";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { streams, type MediaType, type Source, type Streams, type Subtitle } from "../lib/api";
 import { animeStreams, dramaStreams } from "../lib/sources";
-import { asSubtitle, generatedFor, generatedStatus, type Generated } from "../lib/subtitles";
+import {
+  alternativeSubtitles,
+  asSubtitle,
+  generatedFor,
+  generatedStatus,
+  type Generated,
+} from "../lib/subtitles";
 import SubtitleMaker from "./SubtitleMaker";
 import { takeVideo } from "../lib/media";
 import { cueAt, loadCues, type Cue } from "../lib/captions";
@@ -135,6 +141,18 @@ export default function Player(props: PlayerProps) {
   const [panel, setPanel] = createSignal<Panel | null>(null);
   /** The "Create subtitle" form, shown in place of the subtitle list. */
   const [maker, setMaker] = createSignal(false);
+  /** Seconds the subtitles are moved by (later when positive), for files timed for another release. */
+  const [shift, setShift] = createSignal(0);
+  const moveSubtitles = (by: number) => {
+    const next = Math.round((shift() + by) * 10) / 10;
+    setShift(next);
+    say(
+      next
+        ? t("player.subtitleShift", { seconds: next > 0 ? `+${next}` : String(next) })
+        : t("player.subtitleInSync"),
+      1500,
+    );
+  };
   const [fullscreen, setFullscreen] = createSignal(false);
   const [toast, setToast] = createSignal("");
   const [ripple, setRipple] = createSignal<"back" | "forward" | null>(null);
@@ -411,6 +429,7 @@ export default function Player(props: PlayerProps) {
   /** Show one subtitle file, or none. A choice made by the viewer is remembered. */
   const pickTrack = (index: number, byViewer = true) => {
     setTrack(index);
+    setShift(0);
     setCues([]);
     setCaption("");
     const entry = subtitles()[index];
@@ -459,6 +478,11 @@ export default function Player(props: PlayerProps) {
     setCues([]);
     setCaption("");
     setMessage(t("player.finding"));
+    // Asian drama may use subtitles from subtitle services instead (the server's DRAMA_SUBTITLES).
+    const alternative =
+      props.kind === "drama"
+        ? alternativeSubtitles(props.title, props.seasonNumber ?? 1, props.episodeNumber ?? 1)
+        : Promise.resolve([]);
     try {
       const fresh =
         props.kind === "anime"
@@ -474,7 +498,15 @@ export default function Player(props: PlayerProps) {
       tried.clear();
       fetchedAt = from;
       setPayload(fresh);
-      const list = (fresh.subtitles ?? []).filter((entry) => entry.url);
+      play(usable[0], from);
+      const own = (fresh.subtitles ?? []).filter((entry) => entry.url);
+      // Waited for briefly: the drama's own subtitles are used when nothing comes back in time.
+      const found = await Promise.race([
+        alternative,
+        new Promise<Subtitle[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+      ]);
+      if (payload() !== fresh) return;
+      const list = found.length ? found : own;
       setSubtitles(list);
       const auto = preferredCaption(list);
       if (auto >= 0) pickTrack(auto, false);
@@ -487,7 +519,6 @@ export default function Player(props: PlayerProps) {
           if (wanted >= list.length) pickTrack(wanted, false);
         }
       });
-      play(usable[0], from);
     } catch (error) {
       fail(String((error as Error).message ?? error));
     }
@@ -628,6 +659,19 @@ export default function Player(props: PlayerProps) {
             active: track() === index,
             pick: () => pickTrack(index),
           })),
+          ...(track() >= 0
+            ? [
+                {
+                  label: t("player.subtitlesEarlier"),
+                  hint: shift()
+                    ? t("player.subtitleShift", { seconds: shift() > 0 ? `+${shift()}` : String(shift()) })
+                    : undefined,
+                  active: false,
+                  pick: () => moveSubtitles(-0.5),
+                },
+                { label: t("player.subtitlesLater"), active: false, pick: () => moveSubtitles(0.5) },
+              ]
+            : []),
           ...(sources().length
             ? [{ label: t("maker.create"), active: false, pick: () => setMaker(true) }]
             : []),
@@ -935,7 +979,7 @@ export default function Player(props: PlayerProps) {
 
     captionTicker = window.setInterval(() => {
       const list = cues();
-      setCaption(list.length ? cueAt(list, video.currentTime) : "");
+      setCaption(list.length ? cueAt(list, video.currentTime - shift()) : "");
     }, 120);
 
     // Sources expire after a while; refresh ahead of the stall.
