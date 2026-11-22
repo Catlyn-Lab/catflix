@@ -1,6 +1,7 @@
 /** Subtitle files (WebVTT or SubRip) parsed into cues the player draws itself. */
 
 import { proxied } from "./format";
+import { readText } from "./sources";
 
 export type Cue = { start: number; end: number; text: string };
 
@@ -63,6 +64,14 @@ export async function loadCues(url: string): Promise<Cue[]> {
   };
   try {
     const cues = await read(url);
+    if (cues.length) return cues;
+  } catch {
+    /* no CORS headers: try the readers below */
+  }
+  try {
+    // Some subtitle hosts send no CORS headers and challenge the proxy (dramas' cdnvideo files):
+    // the app reads them itself, a browser through the Reader.
+    const cues = parseCues(await readText(url));
     if (cues.length) return cues;
   } catch {
     /* fall through to the proxy */

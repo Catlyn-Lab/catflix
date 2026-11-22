@@ -75,8 +75,8 @@ async function readJson<T>(target: string): Promise<T> {
   return JSON.parse(await readText(target)) as T;
 }
 
-/** Read a URL as text through the same chain as `readJson`. */
-async function readText(target: string): Promise<string> {
+/** Read a URL as text through the same chain as `readJson`. Subtitle files use it too. */
+export async function readText(target: string): Promise<string> {
   const attempts: (() => Promise<string>)[] = [
     ...(isNative() ? [async () => (await nativeGet(target, KISSASIA_REFERER)).body] : []),
     async () => {
@@ -493,7 +493,11 @@ async function playlists(postId: string) {
         url: url.trim(),
         subtitles: (files ?? "")
           .split(",")
-          .map((file, index) => ({ url: file.trim(), label: names[index]?.trim() || "Subtitles" }))
+          .map((file, index) => {
+            // Labels come as typed on the site ("indonesian"): capitalise them for the menu.
+            const name = names[index]?.trim() || "Subtitles";
+            return { url: file.trim(), label: name[0].toUpperCase() + name.slice(1) };
+          })
           .filter((entry) => /^https?:\/\//.test(entry.url)),
       };
     });
