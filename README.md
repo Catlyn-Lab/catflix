@@ -104,5 +104,6 @@ node server.mjs            # serves dist/ on 127.0.0.1:8110 (PORT to change)
 
 `server.mjs` also forwards catalogue calls (`/api/*`) to the API, which only allows the app's own
 origins. Put it behind any reverse proxy; `ecosystem.config.cjs` runs it with pm2
-(`pm2 start ecosystem.config.cjs`). Anime genre filtering and some drama videos need the desktop
-app's native helpers and don't work on the website.
+(`pm2 start ecosystem.config.cjs`). It also relays drama videos from the hosts that only answer
+kissasia's referer (`/stream`), so those play on the website too; that traffic goes through your
+server. Anime genre filtering still needs the desktop app.

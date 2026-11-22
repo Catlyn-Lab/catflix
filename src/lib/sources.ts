@@ -10,6 +10,7 @@
 
 import {
   params,
+  SAME_ORIGIN,
   url as apiUrl,
   type Details,
   type Episode,
@@ -587,14 +588,21 @@ export async function dramaStreams(slug: string, episode: number): Promise<Strea
   const chosen = sources[episode - 1];
   if (!chosen) return { success: true, sources: [], subtitles: [] };
   const host = new URL(chosen.url).hostname;
-  // Referer-locked hosts play only through the app's relay; in a plain browser they can't play.
+  // Referer-locked hosts play through a relay: the app's own, or the website's server
+  // (`server.mjs`). In local development in a plain browser there is none, and they can't play.
   const locked = REFERER_HOSTS.test(host);
   return {
     success: true,
     provider: "kissasia",
     sources: [
       {
-        url: locked && isNative() ? relayedUrl(chosen.url, KISSASIA_REFERER) : chosen.url,
+        url: !locked
+          ? chosen.url
+          : isNative()
+            ? relayedUrl(chosen.url, KISSASIA_REFERER)
+            : SAME_ORIGIN
+              ? `${location.origin}/stream?${params({ url: chosen.url, referer: KISSASIA_REFERER })}`
+              : chosen.url,
         type: chosen.url.includes(".m3u8") ? "hls" : "mp4",
         server: "kissasia",
         skipProxy: locked || DIRECT_HOSTS.test(host),
