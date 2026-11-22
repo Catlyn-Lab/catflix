@@ -19,3 +19,13 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Google sign-in (MainActivity): the page calls the bridge by name, and Credential Manager finds
+# its Play services provider by reflection.
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-if class androidx.credentials.CredentialManager
+-keep class androidx.credentials.playservices.** {
+  *;
+}

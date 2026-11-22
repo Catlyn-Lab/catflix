@@ -3,7 +3,8 @@
  *
  * Website: a session cookie, set by the server after Google; guests can browse without one.
  * Desktop and Android app: a sign-in is required. The app opens Google in the system browser and
- * waits for the server to hand it a token, kept on this device.
+ * waits for the server to hand it a token, kept on this device. On Android, Google's own account
+ * picker comes first (`MainActivity.kt`); the browser is the fallback.
  * Television: a sign-in is required too, but a TV has no browser to sign in with: it shows a QR
  * code of the same sign-in link, opened on a phone, and waits for the token the same way.
  */
@@ -21,6 +22,8 @@ const [status, setStatus] = createSignal<"checking" | "ready" | "offline">("chec
 const [signInReady, setSignInReady] = createSignal(false);
 const [waiting, setWaiting] = createSignal(false);
 const [tvLink, setTvLink] = createSignal<string | null>(null);
+/** Catflix's Google web client id, from the server: Android's account picker needs it. */
+let googleClient: string | null = null;
 
 /** The signed-in viewer, or null for a guest. */
 export const account = user;
@@ -59,8 +62,13 @@ export async function call(path: string, init: RequestInit = {}) {
 export async function loadAccount() {
   try {
     const response = await call("/auth/me");
-    const payload = (await response.json()) as { user: User | null; google?: boolean };
+    const payload = (await response.json()) as {
+      user: User | null;
+      google?: boolean;
+      client?: string | null;
+    };
     setSignInReady(Boolean(payload.google));
+    googleClient = payload.client ?? null;
     if (response.status === 401 && localStorage.getItem(TOKEN_KEY)) localStorage.removeItem(TOKEN_KEY);
     setStatus("ready");
     setAccount(response.ok ? payload.user : null);
@@ -115,6 +123,37 @@ export function stopTvSignIn() {
   setTvLink(null);
 }
 
+/** Google's account picker is showing (a second tap does nothing). */
+let pickerOpen = false;
+
+type GoogleBridge = { signIn: (clientId: string) => void };
+type GoogleAnswer = { token: string | null; error: string | null };
+
+/**
+ * Android: Google's own account picker (sign in or sign up) gives an ID token, which Catflix's
+ * server exchanges for a session. "signed-in", "cancelled", or "failed" (use the browser instead).
+ */
+async function androidSignIn(): Promise<"signed-in" | "cancelled" | "failed"> {
+  const bridge = (window as unknown as { CatflixGoogle?: GoogleBridge }).CatflixGoogle;
+  if (!bridge || !googleClient) return "failed";
+  const answer = await new Promise<GoogleAnswer>((resolve) => {
+    (window as unknown as { __catflixGoogle?: (answer: GoogleAnswer) => void }).__catflixGoogle = resolve;
+    bridge.signIn(googleClient!);
+  });
+  if (answer.error === "cancelled") return "cancelled";
+  if (!answer.token) return "failed";
+  const response = await fetch(backendUrl("/auth/google/idtoken"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken: answer.token }),
+  }).catch(() => null);
+  if (!response?.ok) return "failed";
+  const { token } = (await response.json()) as { token: string };
+  localStorage.setItem(TOKEN_KEY, token);
+  await loadAccount();
+  return "signed-in";
+}
+
 /** Sign in with Google. On the web the page goes to Google and comes back signed in. */
 export async function signIn() {
   if (isTv) return startTvSignIn();
@@ -122,6 +161,11 @@ export async function signIn() {
     location.href = backendUrl(`/auth/google/start?return=${encodeURIComponent(location.href)}`);
     return;
   }
+  if (pickerOpen) return;
+  pickerOpen = true;
+  const native = await androidSignIn().catch(() => "failed" as const);
+  pickerOpen = false;
+  if (native !== "failed") return;
   const device = deviceId();
   await openExternal(backendUrl(`/auth/google/start?device=${device}`));
   setWaiting(true);
