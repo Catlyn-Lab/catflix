@@ -13,6 +13,16 @@ const HOSTS = [
 ];
 
 const STORAGE_KEY = "catflix:host";
+
+/**
+ * Served as a website (not the app, not local development), Catflix asks its own server, which
+ * forwards to the hosts above (see `server.mjs`): the API only allows the app's own origins, so
+ * a browser on another domain would be refused. Media still goes to the hosts' proxy directly.
+ */
+const SAME_ORIGIN =
+  /^https?:$/.test(location.protocol) &&
+  !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) &&
+  !location.hostname.endsWith(".localhost");
 const TIMEOUT = 25_000;
 
 export class ApiError extends Error {
@@ -54,7 +64,7 @@ async function attempt(url: string): Promise<Response> {
 export async function get<T>(path: string): Promise<T> {
   let lastError: Error = new ApiError("the API could not be reached", 0);
 
-  for (const host of hostOrder()) {
+  for (const host of SAME_ORIGIN ? [location.origin] : hostOrder()) {
     let response: Response;
     try {
       response = await attempt(build(path, host));
@@ -73,7 +83,7 @@ export async function get<T>(path: string): Promise<T> {
       throw new ApiError(detail.slice(0, 200) || `HTTP ${response.status}`, response.status);
     }
 
-    if (host !== active) {
+    if (host !== active && HOSTS.includes(host)) {
       active = host;
       localStorage.setItem(STORAGE_KEY, host);
     }
