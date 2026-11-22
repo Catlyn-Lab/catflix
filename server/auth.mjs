@@ -4,10 +4,12 @@
 // (HttpOnly) → back to the page.
 // Desktop app: it opens /auth/google/start?device=<random id> in the system browser and polls
 // /auth/device/<id>; once the callback has run, that call hands the app its token once.
+// Android app: Google's own account picker gives it an ID token for the web client; it posts it
+// to /auth/google/idtoken and gets its token back.
 import crypto from "node:crypto";
 import { config, googleReady } from "./config.mjs";
 import { db } from "./db.mjs";
-import { allow, clientIp, cookies, fail, send } from "./http.mjs";
+import { allow, clientIp, cookies, fail, readJson, send } from "./http.mjs";
 
 const COOKIE = "catflix_session";
 const DAY = 86_400_000;
@@ -72,14 +74,57 @@ const page = (res, status, title, text) =>
     { "Content-Type": "text/html; charset=utf-8" },
   );
 
+/** Add or update the Google account's user, and return its id. */
+function upsertUser(claims) {
+  db.prepare(
+    `INSERT INTO users (google_sub, email, name, avatar_url, created_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(google_sub) DO UPDATE SET email = excluded.email, name = excluded.name, avatar_url = excluded.avatar_url`,
+  ).run(claims.sub, claims.email ?? null, claims.name ?? null, claims.picture ?? null, Date.now());
+  return db.prepare("SELECT id FROM users WHERE google_sub = ?").get(claims.sub).id;
+}
+
+/**
+ * An ID token the Android app got from Google's account picker. It did not come from Google
+ * directly, so Google's tokeninfo endpoint checks its signature; it must be for our web client.
+ */
+async function verifyIdToken(idToken) {
+  const answer = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?${new URLSearchParams({ id_token: idToken })}`,
+    { signal: AbortSignal.timeout(10_000) },
+  ).catch(() => null);
+  const claims = answer?.ok ? await answer.json() : null;
+  const valid =
+    claims &&
+    claims.aud === config.google.clientId &&
+    ["accounts.google.com", "https://accounts.google.com"].includes(claims.iss) &&
+    Number(claims.exp) * 1000 > Date.now() &&
+    String(claims.email_verified) === "true" &&
+    claims.sub;
+  return valid ? claims : null;
+}
+
 export async function handleAuth(req, res, url) {
   const route = url.pathname;
 
   if (route === "/auth/me") {
     const user = currentUser(req);
-    return user
-      ? send(res, 200, { user, google: googleReady() })
-      : send(res, 401, { user: null, google: googleReady() });
+    // The web client id is public: the Android app asks Google's account picker for a token
+    // made out to it.
+    const google = googleReady();
+    const client = google ? config.google.clientId : null;
+    return user ? send(res, 200, { user, google, client }) : send(res, 401, { user: null, google, client });
+  }
+
+  if (route === "/auth/google/idtoken" && req.method === "POST") {
+    if (!googleReady()) return fail(res, 503, "sign-in is not set up yet");
+    if (!allow(`idtoken:${clientIp(req)}`, 30, 10 * 60_000))
+      return fail(res, 429, "too many attempts, try again in a few minutes");
+    const body = await readJson(req);
+    const idToken = typeof body.idToken === "string" ? body.idToken : "";
+    if (!idToken || idToken.length > 8192) return fail(res, 400, "missing sign-in token");
+    const claims = await verifyIdToken(idToken);
+    if (!claims) return fail(res, 401, "Google did not confirm the sign-in");
+    return send(res, 200, { token: createSession(upsertUser(claims), "app") });
   }
 
   if (route === "/auth/logout" && req.method === "POST") {
@@ -154,15 +199,16 @@ export async function handleAuth(req, res, url) {
       return page(res, 502, "Sign-in failed", "Google did not confirm the sign-in. Please try again.");
 
     const now = Date.now();
-    db.prepare(
-      `INSERT INTO users (google_sub, email, name, avatar_url, created_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(google_sub) DO UPDATE SET email = excluded.email, name = excluded.name, avatar_url = excluded.avatar_url`,
-    ).run(claims.sub, claims.email ?? null, claims.name ?? null, claims.picture ?? null, now);
-    const user = db.prepare("SELECT id FROM users WHERE google_sub = ?").get(claims.sub);
+    const user = { id: upsertUser(claims) };
 
     if (flow.device) {
       devices.set(flow.device, { token: createSession(user.id, "app"), expires: now + 10 * 60_000 });
-      return page(res, 200, "Signed in to Catflix", "You can close this tab and go back to the app.");
+      return page(
+        res,
+        200,
+        "Signed in to Catflix",
+        "Go back to Catflix on your app or TV: it continues by itself. You can close this page.",
+      );
     }
     const token = createSession(user.id, "web");
     res.writeHead(302, {

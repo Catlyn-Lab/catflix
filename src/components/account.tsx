@@ -1,7 +1,8 @@
-/** The account button in the top bar, and the sign-in screen the desktop app opens on. */
+/** The account button in the top bar, and the sign-in screen the apps and televisions open on. */
 
 import { A } from "@solidjs/router";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import qrcode from "qrcode-generator";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   account,
   accountStatus,
@@ -9,11 +10,16 @@ import {
   cancelSignIn,
   loadAccount,
   signIn,
+  signInLink,
   signingIn,
   signOut,
+  startTvSignIn,
+  stopTvSignIn,
+  type User,
 } from "../lib/account";
-import { t } from "../lib/i18n";
-import { Cat, State } from "./ui";
+import { isTv } from "../lib/device";
+import { LANGUAGES, language, setLanguage, t, type Language } from "../lib/i18n";
+import { Cat, Check, Globe, State } from "./ui";
 
 /** Google's "G", drawn here: Catflix loads nothing from Google's servers. */
 export const GoogleMark = () => (
@@ -42,7 +48,57 @@ const initials = (name?: string | null) =>
     .slice(0, 2)
     .toUpperCase();
 
-/** "Sign in" for guests (when sign-in is set up); the avatar and a small menu once signed in. */
+const PersonIcon = () => (
+  <svg viewBox="0 0 24 24" class="person-icon" aria-hidden="true">
+    <circle cx="12" cy="8" r="3.6" />
+    <path d="M4.8 20c.9-3.6 3.7-5.6 7.2-5.6s6.3 2 7.2 5.6" />
+  </svg>
+);
+
+const SignInIcon = () => (
+  <svg viewBox="0 0 24 24" class="menu-icon" aria-hidden="true">
+    <path d="M10 4h7.5A1.5 1.5 0 0 1 19 5.5v13a1.5 1.5 0 0 1-1.5 1.5H10" />
+    <path d="M4 12h10M10.5 8.5 14 12l-3.5 3.5" />
+  </svg>
+);
+
+const Chevron = () => (
+  <svg viewBox="0 0 24 24" class="chevron" aria-hidden="true">
+    <path d="m7 10 5 5 5-5" />
+  </svg>
+);
+
+/** Small flags for the language choice. */
+const Flag = (props: { id: Language }) =>
+  props.id === "id" ? (
+    <svg viewBox="0 0 30 20" class="flag" aria-hidden="true">
+      <rect width="30" height="10" fill="#e70011" />
+      <rect y="10" width="30" height="10" fill="#fff" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 30 20" class="flag" aria-hidden="true">
+      <rect width="30" height="20" fill="#fff" />
+      <path
+        d="M0 0h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30v1.54H0zm0 3.08h30V20H0z"
+        fill="#b22234"
+      />
+      <rect width="13" height="10.77" fill="#3c3b6e" />
+    </svg>
+  );
+
+const Avatar = (props: { user: User | null }) => (
+  <span class="account-avatar">
+    <Show when={props.user} fallback={<PersonIcon />}>
+      {(user) => (
+        <Show when={user().avatar} fallback={<span>{initials(user().name)}</span>}>
+          <img src={user().avatar!} alt="" referrerpolicy="no-referrer" />
+        </Show>
+      )}
+    </Show>
+  </span>
+);
+
+/** "Account" in the top bar: sign in / sign up, history and the language, in one menu. */
 export function AccountButton() {
   const [open, setOpen] = createSignal(false);
   let root!: HTMLDivElement;
@@ -60,60 +116,147 @@ export function AccountButton() {
     });
   });
 
+  const join = () => {
+    setOpen(false);
+    void signIn();
+  };
+
   return (
     <div class="account" ref={root}>
-      <Show
-        when={account()}
-        fallback={
-          <Show when={canSignIn()}>
-            <button class="lang-btn" onClick={() => void signIn()}>
-              <GoogleMark />
-              <span class="account-label">{t("account.signIn")}</span>
+      <button
+        class="account-btn"
+        aria-haspopup="menu"
+        aria-expanded={open()}
+        data-open={open() || undefined}
+        onClick={() => setOpen(!open())}
+      >
+        <Avatar user={account()} />
+        <span class="account-label">{t("account.menu")}</span>
+        <Chevron />
+      </button>
+
+      <Show when={open()}>
+        <div class="account-menu" role="menu" aria-label={t("account.menu")}>
+          <div class="account-card">
+            <Avatar user={account()} />
+            <p>
+              <strong>{account()?.name ?? t("account.menu")}</strong>
+              <small>{account()?.email ?? t("account.guestHint")}</small>
+            </p>
+          </div>
+
+          <Show
+            when={account()}
+            fallback={
+              <>
+                <div class="account-actions">
+                  <button role="menuitem" disabled={!canSignIn()} onClick={join}>
+                    <SignInIcon />
+                    {t("account.signIn")}
+                  </button>
+                  <button role="menuitem" data-primary disabled={!canSignIn()} onClick={join}>
+                    <PersonIcon />
+                    {t("account.signUp")}
+                  </button>
+                </div>
+                <Show when={!canSignIn()}>
+                  <p class="account-note">{t("account.notSetUp")}</p>
+                </Show>
+              </>
+            }
+          >
+            <A class="account-row" href="/history" role="menuitem" onClick={() => setOpen(false)}>
+              {t("account.history")}
+            </A>
+            <button
+              class="account-row"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                void signOut();
+              }}
+            >
+              {t("account.signOut")}
             </button>
           </Show>
-        }
-      >
-        {(user) => (
-          <>
-            <button
-              class="avatar-btn"
-              aria-label={t("account.menu")}
-              aria-haspopup="menu"
-              aria-expanded={open()}
-              onClick={() => setOpen(!open())}
-            >
-              <Show when={user().avatar} fallback={<span>{initials(user().name)}</span>}>
-                <img src={user().avatar!} alt="" referrerpolicy="no-referrer" />
-              </Show>
-            </button>
-            <Show when={open()}>
-              <div class="account-menu" role="menu">
-                <p class="account-who">
-                  <strong>{user().name}</strong>
-                  <small>{user().email}</small>
-                </p>
-                <A href="/history" role="menuitem" onClick={() => setOpen(false)}>
-                  {t("account.history")}
-                </A>
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    setOpen(false);
-                    void signOut();
-                  }}
-                >
-                  {t("account.signOut")}
-                </button>
-              </div>
-            </Show>
-          </>
-        )}
+
+          <div class="account-language">
+            <p class="account-section">
+              <Globe />
+              {t("nav.language")}
+            </p>
+            <div class="account-languages">
+              <For each={[...LANGUAGES].reverse()}>
+                {(entry) => (
+                  <button
+                    role="menuitemradio"
+                    aria-checked={language() === entry.id}
+                    data-active={language() === entry.id || undefined}
+                    lang={entry.id}
+                    onClick={() => setLanguage(entry.id)}
+                  >
+                    <Flag id={entry.id} />
+                    <span>{entry.id === "id" ? "Bahasa" : entry.name}</span>
+                    <Show when={language() === entry.id}>
+                      <Check />
+                    </Show>
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        </div>
       </Show>
     </div>
   );
 }
 
-/** The desktop app's first screen until the viewer has signed in. */
+/** A link as a QR code: dark modules on white, drawn as one SVG path. */
+function QrCode(props: { text: string; label: string }) {
+  const drawing = createMemo(() => {
+    const code = qrcode(0, "M");
+    code.addData(props.text);
+    code.make();
+    const count = code.getModuleCount();
+    let path = "";
+    for (let row = 0; row < count; row++) {
+      for (let col = 0; col < count; col++) {
+        if (code.isDark(row, col)) path += `M${col + 4} ${row + 4}h1v1h-1z`;
+      }
+    }
+    return { size: count + 8, path };
+  });
+  return (
+    <svg
+      class="qr-code"
+      viewBox={`0 0 ${drawing().size} ${drawing().size}`}
+      role="img"
+      aria-label={props.label}
+      shape-rendering="crispEdges"
+    >
+      <rect width="100%" height="100%" fill="#fff" />
+      <path d={drawing().path} fill="#000" />
+    </svg>
+  );
+}
+
+/** On a television: sign in by scanning a QR code with a phone. */
+function TvSignIn() {
+  onMount(() => void startTvSignIn());
+  onCleanup(stopTvSignIn);
+  return (
+    <>
+      <h2 id="gate-title">{t("account.tvTitle")}</h2>
+      <p>{t("account.tvText")}</p>
+      <Show when={signInLink()} fallback={<State spinner>{t("account.tvPreparing")}</State>}>
+        {(link) => <QrCode text={link()} label={t("account.tvCode")} />}
+      </Show>
+      <p class="dialog-note">{t("account.tvWaiting")}</p>
+    </>
+  );
+}
+
+/** The apps' and televisions' first screen until the viewer has signed in. */
 export function SignInGate() {
   let button: HTMLButtonElement | undefined;
   onMount(() => button?.focus());
@@ -134,24 +277,34 @@ export function SignInGate() {
             </>
           }
         >
-          <h2 id="gate-title">{t("account.gateTitle")}</h2>
-          <p>{t("account.gateText")}</p>
-          <Show when={canSignIn()} fallback={<p class="dialog-note">{t("account.notSetUp")}</p>}>
-            <Show
-              when={!signingIn()}
-              fallback={
-                <>
-                  <State spinner>{t("account.waiting")}</State>
-                  <button class="btn btn-ghost" onClick={cancelSignIn}>
-                    {t("account.cancel")}
-                  </button>
-                </>
-              }
-            >
-              <button class="btn btn-primary google-btn" ref={button} onClick={() => void signIn()}>
-                <GoogleMark />
-                {t("account.signInGoogle")}
-              </button>
+          <Show
+            when={canSignIn()}
+            fallback={
+              <>
+                <h2 id="gate-title">{t("account.gateTitle")}</h2>
+                <p class="dialog-note">{t("account.notSetUp")}</p>
+              </>
+            }
+          >
+            <Show when={!isTv} fallback={<TvSignIn />}>
+              <h2 id="gate-title">{t("account.gateTitle")}</h2>
+              <p>{t("account.gateText")}</p>
+              <Show
+                when={!signingIn()}
+                fallback={
+                  <>
+                    <State spinner>{t("account.waiting")}</State>
+                    <button class="btn btn-ghost" onClick={cancelSignIn}>
+                      {t("account.cancel")}
+                    </button>
+                  </>
+                }
+              >
+                <button class="btn btn-primary google-btn" ref={button} onClick={() => void signIn()}>
+                  <GoogleMark />
+                  {t("account.signInGoogle")}
+                </button>
+              </Show>
             </Show>
           </Show>
         </Show>

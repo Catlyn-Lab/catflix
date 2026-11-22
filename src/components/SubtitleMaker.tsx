@@ -1,6 +1,6 @@
 /** "Create subtitle": pick a source subtitle, a language, the translator or AI (with a tone). */
 
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import type { Subtitle } from "../lib/api";
 import { account, canSignIn, signIn } from "../lib/account";
 import { language, t, type Phrase } from "../lib/i18n";
@@ -17,6 +17,8 @@ const TONE_LABEL: Record<Tone, Phrase> = {
 export default function SubtitleMaker(props: {
   /** The title's own subtitles (generated ones are not offered as a source). */
   sources: Subtitle[];
+  /** Every subtitle the title has now, its own and generated: their languages can't be made again. */
+  all: Subtitle[];
   sourceName: (entry: Subtitle) => string;
   onCreated: (entry: Generated) => void;
   onBack: () => void;
@@ -32,9 +34,70 @@ export default function SubtitleMaker(props: {
     ),
   );
   const [source, setSource] = createSignal(english);
-  const [target, setTarget] = createSignal(language() === "id" ? "id" : "en");
   const [method, setMethod] = createSignal<"translate" | "ai">("translate");
   const [tone, setTone] = createSignal<Tone>("casual");
+
+  /** A subtitle (the title's own) is in this language. */
+  const inLanguage = (entry: Subtitle, code: string, name: string) => {
+    const base = code.toLowerCase().split("-")[0];
+    const lang = (entry.lang ?? "").toLowerCase();
+    return (
+      lang === code.toLowerCase() ||
+      lang.split(/[-_]/)[0] === base ||
+      new RegExp(`\\b${name.split(" ")[0]}\\b`, "i").test(entry.label ?? "")
+    );
+  };
+  /** The title has this language already, its own or made by anyone. */
+  const has = (code: string, name: string) =>
+    props.all.some((entry) => (entry.generated ? entry.lang === code : inLanguage(entry, code, name)));
+  /** This viewer already made one in this language this way (and, for AI, in this tone). */
+  const mineMade = (code: string, how: "translate" | "ai", withTone?: Tone) =>
+    props.all.some(
+      (entry) =>
+        entry.generated?.mine &&
+        entry.lang === code &&
+        entry.generated.method === how &&
+        (how === "translate" || entry.generated.tone === withTone),
+    );
+  /** The language of the subtitle being translated from. */
+  const sameAsSource = (code: string, name: string) => {
+    const chosen = props.sources[source()];
+    return Boolean(chosen && inLanguage(chosen, code, name));
+  };
+  /**
+   * Each viewer (guests together) makes one translator subtitle per language and one AI subtitle
+   * per language and tone, even where the title already has that language from someone else.
+   */
+  const taken = (code: string, name: string) =>
+    sameAsSource(code, name) || (method() === "translate" && mineMade(code, "translate"));
+  const takenLabel = (code: string, name: string) =>
+    sameAsSource(code, name)
+      ? t("maker.sameAsSource", { language: name })
+      : t("maker.youMade", { language: name });
+  const toneTaken = (entry: Tone) => entry !== "custom" && mineMade(target(), "ai", entry);
+
+  const free = () => (options()?.languages ?? []).filter((entry) => !taken(entry.code, entry.name));
+  const [target, setTarget] = createSignal("");
+  // Start on a language the title lacks (the viewer's own first), else the viewer's own language.
+  createEffect(() => {
+    const open = free();
+    if (open.some((entry) => entry.code === target())) return;
+    const mine = language() === "id" ? "id" : "en";
+    const missing = open.filter((entry) => !has(entry.code, entry.name));
+    setTarget(
+      (
+        missing.find((entry) => entry.code === mine) ??
+        open.find((entry) => entry.code === mine) ??
+        missing[0] ??
+        open[0]
+      )?.code ?? "",
+    );
+  });
+  // Move off a tone that already exists for the chosen language.
+  createEffect(() => {
+    if (method() !== "ai" || !toneTaken(tone())) return;
+    setTone((options()?.tones ?? []).find((entry) => !toneTaken(entry)) ?? "custom");
+  });
   const [custom, setCustom] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal("");
@@ -54,9 +117,10 @@ export default function SubtitleMaker(props: {
     setError("");
     try {
       const made = await createSubtitle({
-        sourceUrl: chosen.url,
+        sourceUrl: chosen.source ?? chosen.url,
         sourceLabel: props.sourceName(chosen),
         targetLang: target(),
+        titleSources: props.all.map((entry) => entry.source ?? entry.url),
         method: method(),
         tone: method() === "ai" ? tone() : undefined,
         customTone: method() === "ai" && tone() === "custom" ? custom() : undefined,
@@ -86,7 +150,15 @@ export default function SubtitleMaker(props: {
         <span>{t("maker.into")}</span>
         <select value={target()} onChange={(event) => setTarget(event.currentTarget.value)}>
           <For each={options()?.languages ?? []}>
-            {(entry) => <option value={entry.code}>{entry.name}</option>}
+            {(entry) => (
+              <option
+                value={entry.code}
+                selected={entry.code === target()}
+                disabled={taken(entry.code, entry.name)}
+              >
+                {taken(entry.code, entry.name) ? takenLabel(entry.code, entry.name) : entry.name}
+              </option>
+            )}
           </For>
         </select>
       </label>
@@ -126,6 +198,8 @@ export default function SubtitleMaker(props: {
                   role="radio"
                   aria-checked={tone() === entry}
                   data-active={tone() === entry || undefined}
+                  disabled={toneTaken(entry)}
+                  title={toneTaken(entry) ? t("maker.toneMade") : undefined}
                   onClick={() => setTone(entry)}
                 >
                   {t(TONE_LABEL[entry])}
@@ -157,7 +231,10 @@ export default function SubtitleMaker(props: {
         <button
           class="btn btn-primary"
           disabled={
-            busy() || !props.sources.length || (method() === "ai" && tone() === "custom" && !custom().trim())
+            busy() ||
+            !props.sources.length ||
+            !target() ||
+            (method() === "ai" && tone() === "custom" && !custom().trim())
           }
           onClick={() => void create()}
         >

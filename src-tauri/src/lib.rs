@@ -1,7 +1,8 @@
 //! Catflix's native side: the window, plus two small network helpers the webview can't do itself.
 //!
-//! * `native_get` reads a page or JSON document the way a browser would. Some catalogues sit
-//!   behind bot checks that refuse proxies, and a webview cannot set `User-Agent` or `Referer`.
+//! * `native_get` reads a page, JSON document, subtitle or media file the way a browser would.
+//!   Some catalogues sit behind bot checks that refuse proxies, and a webview cannot set
+//!   `User-Agent`, `Referer` or the client hints a media element sends.
 //! * The `stream` scheme relays a video file with the referer its host insists on, passing the
 //!   player's `Range` requests through so seeking works.
 
@@ -53,13 +54,32 @@ struct Page {
     total: Option<u64>,
 }
 
+/// Headers a browser sends for a subresource (a track or a media file) but not for a page.
+/// Some drama hosts only hand out the real subtitle when all of them are there: without them
+/// they answer a 30-second notice cue repeated for three hours.
+fn subresource(request: reqwest::RequestBuilder, dest: &str) -> reqwest::RequestBuilder {
+    request
+        .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .header("sec-ch-ua", "\"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"")
+        .header("sec-ch-ua-mobile", "?0")
+        .header("sec-ch-ua-platform", "\"macOS\"")
+        .header("sec-fetch-dest", dest)
+        .header("sec-fetch-mode", "cors")
+        .header("sec-fetch-site", "cross-site")
+}
+
+/// `kind`: `page` (default), `subtitle` or `media`; the last two are asked for like a player.
 #[tauri::command]
-async fn native_get(url: String, referer: Option<String>) -> Result<Page, String> {
+async fn native_get(url: String, referer: Option<String>, kind: Option<String>) -> Result<Page, String> {
     let target = allowed(&url)?;
-    let mut request = client()
-        .get(target)
-        .header(header::ACCEPT, "text/html,application/json;q=0.9,*/*;q=0.8")
-        .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9");
+    let request = client().get(target);
+    let mut request = match kind.as_deref() {
+        Some("subtitle") => subresource(request, "track").header(header::ACCEPT, "*/*"),
+        Some("media") => subresource(request, "video").header(header::ACCEPT, "*/*"),
+        _ => request
+            .header(header::ACCEPT, "text/html,application/json;q=0.9,*/*;q=0.8")
+            .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9"),
+    };
     if let Some(referer) = referer {
         request = request.header(header::REFERER, referer);
     }
@@ -254,12 +274,16 @@ async fn block(url: &str, referer: Option<&str>, index: u64) -> Result<Block, St
 
 async fn fetch_block(url: &str, referer: Option<&str>, index: u64) -> Result<Block, String> {
     let target = allowed(url)?;
-    let mut upstream = client().get(target).header(header::ACCEPT, "*/*").header(
+    let mut upstream = subresource(client().get(target), "video").header(header::ACCEPT, "*/*").header(
         header::RANGE,
         format!("bytes={}-{}", index * BLOCK, (index + 1) * BLOCK - 1),
     );
     if let Some(referer) = referer {
         upstream = upstream.header(header::REFERER, referer);
+        // With the client hints, the video hosts also want the page's origin, as a browser sends.
+        if let Ok(parsed) = reqwest::Url::parse(referer) {
+            upstream = upstream.header(header::ORIGIN, parsed.origin().ascii_serialization());
+        }
     }
     let response = upstream.send().await.map_err(|error| error.to_string())?;
     let status = response.status();
@@ -319,26 +343,25 @@ fn parse_range(value: &str) -> Option<(u64, Option<u64>)> {
 /// Catflix's own server (`VITE_BACKEND_URL`), fixed when the app is built.
 const BACKEND: &str = env!("CATFLIX_BACKEND");
 
-/// Open a page of Catflix's server in the system browser: Google sign-in happens there.
+/// Open a page of Catflix's server in the system browser: Google sign-in happens there. The
+/// opener plugin does it on every platform, Android included (where `open`/`xdg-open` don't exist).
 #[tauri::command]
-fn open_external(url: String) -> Result<(), String> {
+fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
     let parsed = reqwest::Url::parse(&url).map_err(|_| "that address is not valid".to_string())?;
     let backend = reqwest::Url::parse(BACKEND).map_err(|_| "no Catflix server is set".to_string())?;
     if parsed.origin() != backend.origin() {
         return Err("only Catflix's own pages open in the browser".into());
     }
-    #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open").arg(parsed.as_str()).spawn();
-    #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", parsed.as_str()]).spawn();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let result = std::process::Command::new("xdg-open").arg(parsed.as_str()).spawn();
-    result.map(|_| ()).map_err(|error| error.to_string())
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![native_get, open_external])
         .register_asynchronous_uri_scheme_protocol("stream", |_context, request, responder| {
             tauri::async_runtime::spawn(async move {
@@ -363,11 +386,11 @@ mod live {
     #[ignore]
     async fn sources_answer() {
         let referer = setting("CATFLIX_TEST_REFERER");
-        let json = native_get(setting("CATFLIX_TEST_JSON"), Some(referer.clone())).await.unwrap();
+        let json = native_get(setting("CATFLIX_TEST_JSON"), Some(referer.clone()), None).await.unwrap();
         println!("json {} total={:?}", json.status, json.total);
         assert_eq!(json.status, 200);
 
-        let page = native_get(setting("CATFLIX_TEST_PAGE"), None).await.unwrap();
+        let page = native_get(setting("CATFLIX_TEST_PAGE"), None, None).await.unwrap();
         println!("page {} {} bytes", page.status, page.body.len());
         assert_eq!(page.status, 200);
 
@@ -391,6 +414,6 @@ mod live {
             assert_eq!(relay(request).await.body().len(), 800);
         }
 
-        assert!(native_get("https://example.com/".into(), None).await.is_err());
+        assert!(native_get("https://example.com/".into(), None, None).await.is_err());
     }
 }

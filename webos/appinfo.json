@@ -1,0 +1,15 @@
+{
+  "id": "catflix.catlyn.app",
+  "version": "__VERSION__",
+  "vendor": "Catlyn Lab",
+  "type": "web",
+  "main": "index.html",
+  "title": "Catflix",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "splashBackground": "splash.png",
+  "bgColor": "#09080f",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "requiredACG": []
+}

@@ -76,7 +76,8 @@ normalised to the same `Item` / `Details` / `Episode` / `Streams` shapes.
 A webview can't set `User-Agent` or `Referer`, so the desktop shell has helpers limited to an
 allow-list of hosts fixed at build time (derived from `.env`):
 
-- `native_get(url, referer?)` — returns `{ status, body, total }`.
+- `native_get(url, referer?, kind?)` — returns `{ status, body, total }`; `kind` is `page`,
+  `subtitle` or `media`, and the last two send the headers a browser's own element sends.
 - the `stream` scheme — `stream://localhost/?url=&referer=` (`http://stream.localhost/` on
   Windows and Android) relays one video request with the referer, in ranges of at most 8 MB.
 - `open_external(url)` — opens a page of Catflix's own server in the system browser (sign-in).
@@ -134,9 +135,24 @@ and shared with everyone who watches the same file.
   `AI_API_KEY`, `AI_MODEL`).
 - Source files are fetched by the server, which refuses private and local addresses.
 
+### Alternative drama subtitles
+
+With `DRAMA_SUBTITLES=alternative` (and `SUBDL_API_KEY` and/or `OPENSUBTITLES_API_KEY`), Asian drama
+uses subtitles from SubDL, or OpenSubtitles when SubDL finds none, instead of the drama's own (which
+remain the fallback). `original`, the default, keeps the drama's own. Changing it needs only a
+server restart.
+
+| Path | Purpose |
+| --- | --- |
+| `GET /subtitles/external?title=&year=&season=&episode=` | `{ mode: "original" \| "alternative", items: [{ url, label, lang, release }] }` |
+| `GET /subtitles/external/<id>` | The file (SRT or WebVTT), downloaded once and kept in the database |
+
+Languages: `ALTERNATIVE_SUBTITLE_LANGUAGES` (default `en,id`). Files are timed for a particular
+release, so the player's Subtitles menu can move them earlier or later in 0.5 s steps.
+
 ### Other
 
 | Path | Purpose |
 | --- | --- |
 | `GET /translate?to=&q=` | Translates a catalogue description (cached) |
-| `GET /stream?url=` | Relays a video from hosts that need a referer (`VITE_LOCKED_HOSTS`) |
+| `GET /stream?url=` | Relays a video, or its subtitle file, from hosts that need a referer (`VITE_LOCKED_HOSTS`) |

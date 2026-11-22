@@ -2,10 +2,17 @@ import Hls from "hls.js";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { streams, type MediaType, type Source, type Streams, type Subtitle } from "../lib/api";
 import { animeStreams, dramaStreams } from "../lib/sources";
-import { asSubtitle, generatedFor, generatedStatus, type Generated } from "../lib/subtitles";
+import {
+  alternativeSubtitles,
+  asSubtitle,
+  generatedFor,
+  generatedStatus,
+  type Generated,
+} from "../lib/subtitles";
 import SubtitleMaker from "./SubtitleMaker";
+import { takeVideo } from "../lib/media";
 import { cueAt, loadCues, type Cue } from "../lib/captions";
-import { isTouch, usesDpad } from "../lib/device";
+import { isBackKey, isTouch, usesDpad } from "../lib/device";
 import { streamUrl } from "../lib/format";
 import { language, matchesLanguage, t } from "../lib/i18n";
 import { directionOf, moveFocus } from "../lib/spatial";
@@ -14,6 +21,7 @@ import {
   Back,
   Captions,
   Check,
+  SparkleIcon,
   Close,
   Compress,
   Expand,
@@ -47,7 +55,8 @@ export type PlayerProps = {
 };
 
 type Panel = "quality" | "subtitles" | "audio" | "speed" | "source";
-type Option = { label: string; hint?: string; active: boolean; pick: () => void };
+/** `action`: a command rather than a choice (drawn as a button, apart from the choices). */
+type Option = { label: string; hint?: string; active: boolean; action?: boolean; pick: () => void };
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const SKIP = 10;
@@ -66,6 +75,9 @@ const clock = (seconds: number) => {
 const clamp = (value: number, low = 0, high = 1) => Math.min(Math.max(value, low), high);
 
 /** "Subtitles • English (2)" reads better as "English (2)" under a Subtitles heading. */
+/** The line some sites put into their subtitle files when they are shown outside their own pages. */
+const NOTICE = /surreptitiously using content|support the original site/i;
+
 const captionName = (entry: Subtitle) =>
   (entry.label ?? entry.language ?? entry.lang ?? "Subtitles").replace(/^subtitles?\s*[•·:–-]\s*/i, "");
 
@@ -77,7 +89,8 @@ const watchKey = (props: PlayerProps) =>
 
 export default function Player(props: PlayerProps) {
   let root!: HTMLDivElement;
-  let video!: HTMLVideoElement;
+  const video = takeVideo();
+  video.addEventListener("contextmenu", (event) => event.preventDefault());
   let sheet: HTMLDivElement | undefined;
   let playButton: HTMLButtonElement | undefined;
   let hls: Hls | null = null;
@@ -130,6 +143,18 @@ export default function Player(props: PlayerProps) {
   const [panel, setPanel] = createSignal<Panel | null>(null);
   /** The "Create subtitle" form, shown in place of the subtitle list. */
   const [maker, setMaker] = createSignal(false);
+  /** Seconds the subtitles are moved by (later when positive), for files timed for another release. */
+  const [shift, setShift] = createSignal(0);
+  const moveSubtitles = (by: number) => {
+    const next = Math.round((shift() + by) * 10) / 10;
+    setShift(next);
+    say(
+      next
+        ? t("player.subtitleShift", { seconds: next > 0 ? `+${next}` : String(next) })
+        : t("player.subtitleInSync"),
+      1500,
+    );
+  };
   const [fullscreen, setFullscreen] = createSignal(false);
   const [toast, setToast] = createSignal("");
   const [ripple, setRipple] = createSignal<"back" | "forward" | null>(null);
@@ -343,7 +368,8 @@ export default function Player(props: PlayerProps) {
   };
 
   /** The title's own subtitles: the ones a new subtitle can be made from. */
-  const sources = () => subtitles().filter((entry) => !entry.generated);
+  const sources = () =>
+    subtitles().filter((entry) => !entry.generated && !replaced().has(entry.source ?? entry.url));
   const percentOf = (entry: Subtitle) =>
     entry.generated?.total ? Math.floor((entry.generated.done / entry.generated.total) * 100) : 0;
 
@@ -381,9 +407,32 @@ export default function Player(props: PlayerProps) {
   );
   onCleanup(() => clearInterval(generatedTimer));
 
+  /** Subtitle files found to carry their site's notice against showing them elsewhere. */
+  const noticed = new Set<string>();
+  /** Files that are nothing but that notice: no subtitles at all, as far as Catflix is concerned. */
+  const [replaced, setReplaced] = createSignal<ReadonlySet<string>>(new Set());
+  let replacedNoticed = false;
+  /** The best other track for the one at `index`: same language first, then English. */
+  const otherTrack = (index: number) => {
+    const list = subtitles();
+    const current = list[index];
+    const languageOf = (entry: Subtitle) =>
+      (entry.lang || captionName(entry)).toLowerCase().split(/[\s_-]/)[0];
+    const open = list
+      .map((entry, at) => ({ entry, at }))
+      .filter(({ entry, at }) => at !== index && !noticed.has(entry.url));
+    return (
+      (
+        open.find(({ entry }) => current && languageOf(entry) === languageOf(current)) ??
+        open.find(({ entry }) => matchesLanguage(entry, "en"))
+      )?.at ?? -1
+    );
+  };
+
   /** Show one subtitle file, or none. A choice made by the viewer is remembered. */
   const pickTrack = (index: number, byViewer = true) => {
     setTrack(index);
+    setShift(0);
     setCues([]);
     setCaption("");
     const entry = subtitles()[index];
@@ -394,7 +443,27 @@ export default function Player(props: PlayerProps) {
     if (!entry) return;
     loadCues(entry.url, Boolean(entry.generated))
       .then((loaded) => {
-        if (track() === index) setCues(loaded);
+        if (track() !== index) return;
+        // Chosen automatically but the file carries its site's "not allowed here" notice: prefer
+        // another track in the same language, or English. A viewer's own choice is kept as it is.
+        const notices = loaded.filter((cue) => NOTICE.test(cue.text)).length;
+        if (notices) noticed.add(entry.url);
+        // Only the notice, no dialogue: the site gives other apps a replacement file.
+        const onlyNotice = notices > 0 && notices >= loaded.length * 0.9;
+        if (onlyNotice) setReplaced((known) => new Set([...known, entry.url]));
+        if (!byViewer && notices) {
+          const other = otherTrack(index);
+          if (other >= 0) return pickTrack(other, false);
+          if (onlyNotice) {
+            setTrack(-1);
+            if (!replacedNoticed) {
+              replacedNoticed = true;
+              say(t("player.subtitlesUnavailable"), 4000);
+            }
+            return;
+          }
+        }
+        setCues(loaded);
       })
       .catch(() => {
         if (track() !== index) return;
@@ -412,6 +481,11 @@ export default function Player(props: PlayerProps) {
     setCues([]);
     setCaption("");
     setMessage(t("player.finding"));
+    // Asian drama may use subtitles from subtitle services instead (the server's DRAMA_SUBTITLES).
+    const alternative =
+      props.kind === "drama"
+        ? alternativeSubtitles(props.title, props.seasonNumber ?? 1, props.episodeNumber ?? 1)
+        : Promise.resolve([]);
     try {
       const fresh =
         props.kind === "anime"
@@ -427,12 +501,20 @@ export default function Player(props: PlayerProps) {
       tried.clear();
       fetchedAt = from;
       setPayload(fresh);
-      const list = (fresh.subtitles ?? []).filter((entry) => entry.url);
+      play(usable[0], from);
+      const own = (fresh.subtitles ?? []).filter((entry) => entry.url);
+      // Waited for briefly: the drama's own subtitles are used when nothing comes back in time.
+      const found = await Promise.race([
+        alternative,
+        new Promise<Subtitle[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+      ]);
+      if (payload() !== fresh) return;
+      const list = found.length ? found : own;
       setSubtitles(list);
       const auto = preferredCaption(list);
       if (auto >= 0) pickTrack(auto, false);
       // Subtitles made earlier from these files (by anyone) join the list after the title's own.
-      void generatedFor(list.map((entry) => entry.url)).then((made) => {
+      void generatedFor(list.map((entry) => entry.source ?? entry.url)).then((made) => {
         if (!made.length || payload() !== fresh) return;
         setSubtitles([...list, ...made]);
         if (auto < 0 && !loadPrefs().subtitlesOff) {
@@ -440,7 +522,6 @@ export default function Player(props: PlayerProps) {
           if (wanted >= list.length) pickTrack(wanted, false);
         }
       });
-      play(usable[0], from);
     } catch (error) {
       fail(String((error as Error).message ?? error));
     }
@@ -510,6 +591,61 @@ export default function Player(props: PlayerProps) {
     }
   };
 
+  /**
+   * Subtitles are drawn by the player over the video. When the video element itself goes
+   * fullscreen (iPhone's own player; Chrome on Android when the phone is turned sideways) that
+   * layer is left behind, so the same cues also go into the video's own text track, which the
+   * browser shows only then.
+   */
+  const nativeTrack: TextTrack | null = (() => {
+    try {
+      const track = video.addTextTrack("subtitles", "Catflix");
+      track.mode = "hidden";
+      return track;
+    } catch {
+      return null;
+    }
+  })();
+  const [videoFullscreen, setVideoFullscreen] = createSignal(false);
+  const checkVideoFullscreen = () => {
+    const shell = document as Document & { webkitFullscreenElement?: Element | null };
+    const own = video as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean };
+    setVideoFullscreen(
+      document.fullscreenElement === video ||
+        shell.webkitFullscreenElement === video ||
+        Boolean(own.webkitDisplayingFullscreen),
+    );
+  };
+  for (const type of [
+    "webkitbeginfullscreen",
+    "webkitendfullscreen",
+    "fullscreenchange",
+    "webkitfullscreenchange",
+  ]) {
+    video.addEventListener(type, () => setTimeout(checkVideoFullscreen, 0));
+  }
+  document.addEventListener("fullscreenchange", checkVideoFullscreen);
+  document.addEventListener("webkitfullscreenchange", checkVideoFullscreen);
+  onCleanup(() => {
+    document.removeEventListener("fullscreenchange", checkVideoFullscreen);
+    document.removeEventListener("webkitfullscreenchange", checkVideoFullscreen);
+  });
+  createEffect(() => {
+    if (!nativeTrack) return;
+    const list = cues();
+    const offset = shift();
+    for (const old of Array.from(nativeTrack.cues ?? [])) nativeTrack.removeCue(old);
+    if (typeof VTTCue === "undefined") return;
+    for (const cue of list) {
+      const start = cue.start + offset;
+      if (cue.end + offset <= 0) continue;
+      nativeTrack.addCue(new VTTCue(Math.max(0, start), cue.end + offset, cue.text));
+    }
+  });
+  createEffect(() => {
+    if (nativeTrack) nativeTrack.mode = videoFullscreen() && cues().length ? "showing" : "hidden";
+  });
+
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
       void document.exitFullscreen();
@@ -575,12 +711,27 @@ export default function Player(props: PlayerProps) {
             hint:
               entry.generated?.status === "working"
                 ? t("maker.inProgress", { percent: percentOf(entry) })
-                : undefined,
+                : replaced().has(entry.url)
+                  ? t("player.subtitleNotice")
+                  : undefined,
             active: track() === index,
             pick: () => pickTrack(index),
           })),
+          ...(track() >= 0
+            ? [
+                {
+                  label: t("player.subtitlesEarlier"),
+                  hint: shift()
+                    ? t("player.subtitleShift", { seconds: shift() > 0 ? `+${shift()}` : String(shift()) })
+                    : undefined,
+                  active: false,
+                  pick: () => moveSubtitles(-0.5),
+                },
+                { label: t("player.subtitlesLater"), active: false, pick: () => moveSubtitles(0.5) },
+              ]
+            : []),
           ...(sources().length
-            ? [{ label: t("maker.create"), active: false, pick: () => setMaker(true) }]
+            ? [{ label: t("maker.create"), active: false, action: true, pick: () => setMaker(true) }]
             : []),
         ];
       case "audio":
@@ -683,7 +834,7 @@ export default function Player(props: PlayerProps) {
     const typing = target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName);
     const direction = directionOf(key);
 
-    if (key === "Escape" || key === "GoBack" || key === "BrowserBack") {
+    if (key === "Escape" || isBackKey(event)) {
       event.preventDefault();
       if (panel()) closePanel();
       else if (usesDpad && focusedControl() && mayHide()) hide();
@@ -886,7 +1037,7 @@ export default function Player(props: PlayerProps) {
 
     captionTicker = window.setInterval(() => {
       const list = cues();
-      setCaption(list.length ? cueAt(list, video.currentTime) : "");
+      setCaption(list.length ? cueAt(list, video.currentTime - shift()) : "");
     }, 120);
 
     // Sources expire after a while; refresh ahead of the stall.
@@ -924,7 +1075,7 @@ export default function Player(props: PlayerProps) {
         if (event.pointerType === "mouse") wake();
       }}
     >
-      <video ref={video} playsinline onContextMenu={(event) => event.preventDefault()} />
+      {video}
 
       <Show when={art()}>
         <div class="player-art" style={{ "background-image": `url("${art()}")` }} />
@@ -1243,13 +1394,16 @@ export default function Player(props: PlayerProps) {
                 <For each={options()}>
                   {(entry) => (
                     <button
-                      class="option"
+                      class={entry.action ? "option option-action" : "option"}
                       data-active={entry.active || undefined}
                       onClick={() => {
                         entry.pick();
                         wake();
                       }}
                     >
+                      <Show when={entry.action}>
+                        <SparkleIcon />
+                      </Show>
                       <span>
                         {entry.label}
                         <Show when={entry.hint}>
@@ -1267,6 +1421,7 @@ export default function Player(props: PlayerProps) {
           >
             <SubtitleMaker
               sources={sources()}
+              all={subtitles()}
               sourceName={captionName}
               onCreated={addGenerated}
               onBack={() => {

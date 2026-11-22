@@ -47,8 +47,36 @@ export const config = {
     baseUrl: trimSlash(env.AI_BASE_URL),
     apiKey: env.AI_API_KEY ?? "",
     model: env.AI_MODEL ?? "",
+    // "anthropic" (Messages API) or "openai" (any OpenAI-compatible chat endpoint); guessed from the URL.
+    provider: env.AI_PROVIDER || (/anthropic\.com/.test(env.AI_BASE_URL ?? "") ? "anthropic" : "openai"),
     dailyCharacters: number(env.AI_DAILY_CHARACTERS, 200_000),
+    // All viewers together, per day: a ceiling on what the AI can cost.
+    globalDailyCharacters: number(env.AI_GLOBAL_DAILY_CHARACTERS, 2_000_000),
+    // Reasoning models think before answering; "none" or "low" makes them much faster. Empty: not sent.
+    reasoningEffort: env.AI_REASONING_EFFORT ?? "",
+    // Batches translated at the same time (the earliest first).
+    concurrency: Math.max(1, Math.min(8, number(env.AI_CONCURRENCY, 4))),
   },
+  // Asian drama subtitles: "original" (the drama's own files) or "alternative" (looked up on the
+  // subtitle services below, the drama's own files only when nothing is found).
+  dramaSubtitles: env.DRAMA_SUBTITLES === "alternative" ? "alternative" : "original",
+  subdl: {
+    apiKey: env.SUBDL_API_KEY ?? "",
+    apiUrl: trimSlash(env.SUBDL_API_URL || "https://api.subdl.com/api/v1/subtitles"),
+    downloadUrl: trimSlash(env.SUBDL_DOWNLOAD_URL || "https://dl.subdl.com"),
+  },
+  opensubtitles: {
+    apiKey: env.OPENSUBTITLES_API_KEY ?? "",
+    apiUrl: trimSlash(env.OPENSUBTITLES_API_URL || "https://api.opensubtitles.com/api/v1"),
+    // Optional: an account raises the daily download allowance.
+    username: env.OPENSUBTITLES_USERNAME ?? "",
+    password: env.OPENSUBTITLES_PASSWORD ?? "",
+  },
+  // Languages looked up, as two-letter codes.
+  alternativeLanguages: (env.ALTERNATIVE_SUBTITLE_LANGUAGES || "en,id")
+    .split(",")
+    .map((code) => code.trim().toLowerCase())
+    .filter(Boolean),
 };
 
 export const googleReady = () => Boolean(config.google.clientId && config.google.clientSecret);
