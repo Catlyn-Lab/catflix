@@ -5,7 +5,8 @@
 //! * The `stream` scheme relays a video file with the referer its host insists on, passing the
 //!   player's `Range` requests through so seeking works.
 
-use std::sync::OnceLock;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Serialize;
 use tauri::http::{header, Request, Response, StatusCode};
@@ -78,10 +79,24 @@ async fn native_get(url: String, referer: Option<String>) -> Result<Page, String
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse().ok());
     let body = response.text().await.map_err(|error| error.to_string())?;
-    Ok(Page { status, body, total })
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[native_get] {status} {} ({} bytes)",
+        url.chars().take(110).collect::<String>(),
+        body.len()
+    );
+    Ok(Page {
+        status,
+        body,
+        total,
+    })
 }
 
 /// `stream://localhost/?url=<file>&referer=<site>` relays one media request.
+///
+/// The webview's media loader asks for many tiny ranges (often under 1 KB). Sending each one to
+/// the host would mean a round trip per read, so the file is fetched in 2 MB blocks, kept in a
+/// small cache, and every read is answered from there. The next block is fetched ahead.
 async fn relay(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     let failure = |status: StatusCode, text: &str| {
         Response::builder()
@@ -92,63 +107,221 @@ async fn relay(request: Request<Vec<u8>>) -> Response<Vec<u8>> {
     };
 
     let query = request.uri().query().unwrap_or_default();
-    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes()).into_owned().collect();
-    let find = |name: &str| pairs.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes())
+        .into_owned()
+        .collect();
+    let find = |name: &str| {
+        pairs
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.clone())
+    };
     let Some(url) = find("url") else {
         return failure(StatusCode::BAD_REQUEST, "missing url");
     };
-    let target = match allowed(&url) {
-        Ok(target) => target,
-        Err(error) => return failure(StatusCode::FORBIDDEN, &error),
-    };
-
-    let mut upstream = client().get(target).header(header::ACCEPT, "*/*");
-    if let Some(referer) = find("referer") {
-        upstream = upstream.header(header::REFERER, referer);
+    if let Err(error) = allowed(&url) {
+        return failure(StatusCode::FORBIDDEN, &error);
     }
-    // Ask for at most 8 MB at a time: the player asks again for the rest, and a seek stays quick.
-    let range = request
+    let referer = find("referer");
+
+    let (start, end) = request
         .headers()
         .get(header::RANGE)
         .and_then(|value| value.to_str().ok())
-        .map(|value| cap_range(value))
-        .unwrap_or_else(|| "bytes=0-8388607".to_string());
-    upstream = upstream.header(header::RANGE, range);
+        .and_then(parse_range)
+        .unwrap_or((0, None));
+    let index = start / BLOCK;
 
-    let response = match upstream.send().await {
-        Ok(response) => response,
-        Err(error) => return failure(StatusCode::BAD_GATEWAY, &error.to_string()),
-    };
-
-    let mut builder = Response::builder()
-        .status(response.status().as_u16())
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        .header(header::ACCESS_CONTROL_EXPOSE_HEADERS, "Content-Length, Content-Range, Accept-Ranges");
-    for name in [header::CONTENT_TYPE, header::CONTENT_RANGE, header::ACCEPT_RANGES] {
-        if let Some(value) = response.headers().get(&name) {
-            builder = builder.header(name, value.as_bytes());
+    let first = match block(&url, referer.as_deref(), index).await {
+        Ok(block) => block,
+        Err(error) => {
+            #[cfg(debug_assertions)]
+            eprintln!("[stream] block {index} of {url} failed: {error}");
+            return failure(StatusCode::BAD_GATEWAY, &error);
         }
+    };
+    let total = first.total;
+    if start >= total {
+        return Response::builder()
+            .status(StatusCode::RANGE_NOT_SATISFIABLE)
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .header(header::CONTENT_RANGE, format!("bytes */{total}"))
+            .body(Vec::new())
+            .unwrap();
     }
-    match response.bytes().await {
-        Ok(bytes) => builder.body(bytes.to_vec()).unwrap(),
-        Err(error) => failure(StatusCode::BAD_GATEWAY, &error.to_string()),
+
+    // Answer exactly the bytes asked for, joining blocks where the range crosses an edge: the
+    // macOS media loader does not ask again for a short answer, and audio goes missing if it gets
+    // one. An open-ended request (`bytes=N-`) gets the rest of this block and the next.
+    let last = match end {
+        Some(end) => end.min(total - 1).min(start + MAX_ANSWER - 1),
+        None => ((index + 2) * BLOCK - 1).min(total - 1),
+    };
+    let mut body = Vec::with_capacity((last - start + 1) as usize);
+    let mut current = first;
+    let mut position = start;
+    let mut at = index;
+    loop {
+        let block_start = at * BLOCK;
+        let block_last = block_start + current.bytes.len() as u64 - 1;
+        let to = last.min(block_last);
+        body.extend_from_slice(
+            &current.bytes[(position - block_start) as usize..=(to - block_start) as usize],
+        );
+        if to >= last {
+            break;
+        }
+        position = to + 1;
+        at += 1;
+        current = match block(&url, referer.as_deref(), at).await {
+            Ok(block) => block,
+            Err(error) => return failure(StatusCode::BAD_GATEWAY, &error),
+        };
     }
+    let last = start + body.len() as u64 - 1;
+
+    // Read ahead: the block after this answer is usually wanted a moment later.
+    let next = last / BLOCK + 1;
+    if next * BLOCK < total {
+        let (url, referer) = (url.clone(), referer.clone());
+        tauri::async_runtime::spawn(async move {
+            let _ = self::block(&url, referer.as_deref(), next).await;
+        });
+    }
+
+    Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(
+            header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            "Content-Length, Content-Range, Accept-Ranges",
+        )
+        .header(header::CONTENT_TYPE, current.content_type.as_str())
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(
+            header::CONTENT_RANGE,
+            format!("bytes {start}-{last}/{total}"),
+        )
+        .body(body)
+        .unwrap()
 }
 
-/// `bytes=N-` or a very long range becomes at most 8 MB, so each answer stays small.
-fn cap_range(value: &str) -> String {
-    const CHUNK: u64 = 8 * 1024 * 1024;
-    let Some(spec) = value.strip_prefix("bytes=") else {
-        return value.to_string();
+/// The longest single answer: a bounded request larger than this is answered in part.
+const MAX_ANSWER: u64 = 16 * 1024 * 1024;
+const BLOCK: u64 = 2 * 1024 * 1024;
+/// About 96 MB: a few minutes of video either side of where the viewer is.
+const KEEP: usize = 48;
+
+#[derive(Clone)]
+struct Block {
+    bytes: Arc<Vec<u8>>,
+    total: u64,
+    content_type: Arc<String>,
+}
+
+type Slot = Arc<tokio::sync::OnceCell<Block>>;
+
+/// Cached blocks by (file, index), oldest first, so the cache stays bounded.
+fn cache() -> &'static Mutex<(HashMap<(String, u64), Slot>, VecDeque<(String, u64)>)> {
+    static CACHE: OnceLock<Mutex<(HashMap<(String, u64), Slot>, VecDeque<(String, u64)>)>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new((HashMap::new(), VecDeque::new())))
+}
+
+/// One block of a file, fetched once even when several reads want it at the same time.
+async fn block(url: &str, referer: Option<&str>, index: u64) -> Result<Block, String> {
+    let key = (url.to_string(), index);
+    let slot = {
+        let mut guard = cache().lock().unwrap();
+        let (slots, order) = &mut *guard;
+        if let Some(slot) = slots.get(&key) {
+            slot.clone()
+        } else {
+            let slot: Slot = Arc::new(tokio::sync::OnceCell::new());
+            slots.insert(key.clone(), slot.clone());
+            order.push_back(key.clone());
+            while order.len() > KEEP {
+                if let Some(old) = order.pop_front() {
+                    slots.remove(&old);
+                }
+            }
+            slot
+        }
     };
-    let mut parts = spec.splitn(2, '-');
-    let start: Option<u64> = parts.next().and_then(|start| start.trim().parse().ok());
-    let end: Option<u64> = parts.next().and_then(|end| end.trim().parse().ok());
-    match (start, end) {
-        (Some(start), Some(end)) if end - start < CHUNK => value.to_string(),
-        (Some(start), _) => format!("bytes={}-{}", start, start + CHUNK - 1),
-        _ => value.to_string(),
+    let result = slot
+        .get_or_try_init(|| fetch_block(url, referer, index))
+        .await
+        .cloned();
+    if result.is_err() {
+        // Let the next read try again rather than remembering the failure.
+        let mut guard = cache().lock().unwrap();
+        guard.0.remove(&key);
     }
+    result
+}
+
+async fn fetch_block(url: &str, referer: Option<&str>, index: u64) -> Result<Block, String> {
+    let target = allowed(url)?;
+    let mut upstream = client().get(target).header(header::ACCEPT, "*/*").header(
+        header::RANGE,
+        format!("bytes={}-{}", index * BLOCK, (index + 1) * BLOCK - 1),
+    );
+    if let Some(referer) = referer {
+        upstream = upstream.header(header::REFERER, referer);
+    }
+    let response = upstream.send().await.map_err(|error| error.to_string())?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("the host answered {status}"));
+    }
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("video/mp4")
+        .to_string();
+    // `bytes a-b/total` on a 206; a 200 means the host sent the whole file.
+    let total_from_range = response
+        .headers()
+        .get(header::CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.rsplit('/').next())
+        .and_then(|value| value.parse::<u64>().ok());
+    let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+    let (bytes, total) = if status == StatusCode::PARTIAL_CONTENT {
+        (
+            bytes.to_vec(),
+            total_from_range.unwrap_or(index * BLOCK + bytes.len() as u64),
+        )
+    } else {
+        // No range support: keep only the wanted block of the whole file.
+        let total = bytes.len() as u64;
+        let from = (index * BLOCK).min(total) as usize;
+        let to = ((index + 1) * BLOCK).min(total) as usize;
+        (bytes[from..to].to_vec(), total)
+    };
+    if bytes.is_empty() {
+        return Err("the host sent nothing".to_string());
+    }
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[stream] block {index} ({} bytes of {total}) {url}",
+        bytes.len()
+    );
+    Ok(Block {
+        bytes: Arc::new(bytes),
+        total,
+        content_type: Arc::new(content_type),
+    })
+}
+
+/// `bytes=a-b` or `bytes=a-` as (a, Some(b) / None).
+fn parse_range(value: &str) -> Option<(u64, Option<u64>)> {
+    let spec = value.strip_prefix("bytes=")?;
+    let (start, end) = spec.split_once('-')?;
+    let start = start.trim().parse().ok()?;
+    let end = end.trim().parse().ok();
+    Some((start, end))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -172,12 +345,31 @@ mod live {
     #[tokio::test]
     #[ignore]
     async fn sources_answer() {
-        let posts = native_get("https://kissasia.biz/wp-json/wp/v2/posts?per_page=2&_fields=id".into(), Some("https://kissasia.biz/".into())).await.unwrap();
-        println!("kissasia {} total={:?} {}", posts.status, posts.total, &posts.body[..60.min(posts.body.len())]);
+        let posts = native_get(
+            "https://kissasia.biz/wp-json/wp/v2/posts?per_page=2&_fields=id".into(),
+            Some("https://kissasia.biz/".into()),
+        )
+        .await
+        .unwrap();
+        println!(
+            "kissasia {} total={:?} {}",
+            posts.status,
+            posts.total,
+            &posts.body[..60.min(posts.body.len())]
+        );
         assert_eq!(posts.status, 200);
 
-        let filter = native_get("https://aniwaves.tv/filter?genre%5B%5D=4&status%5B%5D=0&sort_by=members&page=1".into(), None).await.unwrap();
-        println!("aniwaves {} items={}", filter.status, filter.body.matches("class=\"item\"").count());
+        let filter = native_get(
+            "https://aniwaves.tv/filter?genre%5B%5D=4&status%5B%5D=0&sort_by=members&page=1".into(),
+            None,
+        )
+        .await
+        .unwrap();
+        println!(
+            "aniwaves {} items={}",
+            filter.status,
+            filter.body.matches("class=\"item\"").count()
+        );
         assert!(filter.body.contains("class=\"item\""));
 
         let request = Request::builder()
@@ -186,9 +378,33 @@ mod live {
             .body(Vec::new())
             .unwrap();
         let response = relay(request).await;
-        println!("relay {} {:?} {} bytes {:?}", response.status(), response.headers().get(header::CONTENT_TYPE), response.body().len(), response.headers().get(header::CONTENT_RANGE));
+        println!(
+            "relay {} {:?} {} bytes {:?}",
+            response.status(),
+            response.headers().get(header::CONTENT_TYPE),
+            response.body().len(),
+            response.headers().get(header::CONTENT_RANGE)
+        );
         assert_eq!(response.status(), 206);
         assert_eq!(&response.body()[4..8], b"ftyp");
+
+        // Tiny reads, as the webview makes them, come from the cached block.
+        for offset in [1000u64, 5000, 900_000, 2 * 1024 * 1024 - 300] {
+            let request = Request::builder()
+                .uri("stream://localhost/?url=https%3A%2F%2Fapi.flixfile.top%2Fmedia%2F09B9t3B5pl.mp4&referer=https%3A%2F%2Fkissasia.biz%2F")
+                .header(header::RANGE, format!("bytes={offset}-{}", offset + 799))
+                .body(Vec::new())
+                .unwrap();
+            let started = std::time::Instant::now();
+            let response = relay(request).await;
+            println!(
+                "read {offset}: {} {} bytes in {:?}",
+                response.status(),
+                response.body().len(),
+                started.elapsed()
+            );
+            assert_eq!(response.body().len(), 800);
+        }
 
         let refused = native_get("https://example.com/".into(), None).await;
         assert!(refused.is_err());
