@@ -47,7 +47,15 @@ export const config = {
     baseUrl: trimSlash(env.AI_BASE_URL),
     apiKey: env.AI_API_KEY ?? "",
     model: env.AI_MODEL ?? "",
+    // "anthropic" (Messages API) or "openai" (any OpenAI-compatible chat endpoint); guessed from the URL.
+    provider: env.AI_PROVIDER || (/anthropic\.com/.test(env.AI_BASE_URL ?? "") ? "anthropic" : "openai"),
     dailyCharacters: number(env.AI_DAILY_CHARACTERS, 200_000),
+    // All viewers together, per day: a ceiling on what the AI can cost.
+    globalDailyCharacters: number(env.AI_GLOBAL_DAILY_CHARACTERS, 2_000_000),
+    // Reasoning models think before answering; "none" or "low" makes them much faster. Empty: not sent.
+    reasoningEffort: env.AI_REASONING_EFFORT ?? "",
+    // Batches translated at the same time (the earliest first).
+    concurrency: Math.max(1, Math.min(8, number(env.AI_CONCURRENCY, 4))),
   },
 };
 

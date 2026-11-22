@@ -2507,7 +2507,8 @@ html[data-device="touch"] .desk {
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
-.maker-choices button:disabled {
+.maker-choices button:disabled,
+.maker-tones button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

@@ -22,7 +22,7 @@ export function readJson(req) {
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > MAX_BODY) {
-        reject(new Error("request too large"));
+        reject(Object.assign(new Error("that request is too large"), { status: 413 }));
         req.destroy();
       } else chunks.push(chunk);
     });
@@ -30,7 +30,7 @@ export function readJson(req) {
       try {
         resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {});
       } catch {
-        reject(new Error("invalid JSON"));
+        reject(Object.assign(new Error("that request is not valid JSON"), { status: 400 }));
       }
     });
     req.on("error", reject);
