@@ -2007,6 +2007,35 @@ html[data-device="touch"] .desk {
   color: var(--accent-soft);
 }
 
+/* A command in the menu (make a new subtitle): a red button set apart from the choices. */
+.option.option-action {
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 650;
+  box-shadow: 0 0.4rem 1.4rem -0.5rem var(--accent-glow);
+}
+
+.option.option-action:hover,
+.option.option-action:focus-visible {
+  background: var(--accent-soft);
+  color: #fff;
+}
+
+.option.option-action:focus-visible {
+  box-shadow:
+    0 0 0 0.16rem #fff,
+    0 0.4rem 1.4rem -0.5rem var(--accent-glow);
+}
+
+.option.option-action svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  color: #fff;
+}
+
 /* ---------- language question ---------- */
 
 .dialog-scrim {

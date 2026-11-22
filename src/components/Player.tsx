@@ -21,6 +21,7 @@ import {
   Back,
   Captions,
   Check,
+  SparkleIcon,
   Close,
   Compress,
   Expand,
@@ -54,7 +55,8 @@ export type PlayerProps = {
 };
 
 type Panel = "quality" | "subtitles" | "audio" | "speed" | "source";
-type Option = { label: string; hint?: string; active: boolean; pick: () => void };
+/** `action`: a command rather than a choice (drawn as a button, apart from the choices). */
+type Option = { label: string; hint?: string; active: boolean; action?: boolean; pick: () => void };
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const SKIP = 10;
@@ -674,7 +676,7 @@ export default function Player(props: PlayerProps) {
               ]
             : []),
           ...(sources().length
-            ? [{ label: t("maker.create"), active: false, pick: () => setMaker(true) }]
+            ? [{ label: t("maker.create"), active: false, action: true, pick: () => setMaker(true) }]
             : []),
         ];
       case "audio":
@@ -1337,13 +1339,16 @@ export default function Player(props: PlayerProps) {
                 <For each={options()}>
                   {(entry) => (
                     <button
-                      class="option"
+                      class={entry.action ? "option option-action" : "option"}
                       data-active={entry.active || undefined}
                       onClick={() => {
                         entry.pick();
                         wake();
                       }}
                     >
+                      <Show when={entry.action}>
+                        <SparkleIcon />
+                      </Show>
                       <span>
                         {entry.label}
                         <Show when={entry.hint}>
