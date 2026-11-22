@@ -1,7 +1,8 @@
-/** The account button in the top bar, and the sign-in screen the desktop app opens on. */
+/** The account button in the top bar, and the sign-in screen the apps and televisions open on. */
 
 import { A } from "@solidjs/router";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import qrcode from "qrcode-generator";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   account,
   accountStatus,
@@ -9,10 +10,14 @@ import {
   cancelSignIn,
   loadAccount,
   signIn,
+  signInLink,
   signingIn,
   signOut,
+  startTvSignIn,
+  stopTvSignIn,
   type User,
 } from "../lib/account";
+import { isTv } from "../lib/device";
 import { LANGUAGES, language, setLanguage, t, type Language } from "../lib/i18n";
 import { Cat, Check, Globe, State } from "./ui";
 
@@ -206,7 +211,52 @@ export function AccountButton() {
   );
 }
 
-/** The desktop app's first screen until the viewer has signed in. */
+/** A link as a QR code: dark modules on white, drawn as one SVG path. */
+function QrCode(props: { text: string; label: string }) {
+  const drawing = createMemo(() => {
+    const code = qrcode(0, "M");
+    code.addData(props.text);
+    code.make();
+    const count = code.getModuleCount();
+    let path = "";
+    for (let row = 0; row < count; row++) {
+      for (let col = 0; col < count; col++) {
+        if (code.isDark(row, col)) path += `M${col + 4} ${row + 4}h1v1h-1z`;
+      }
+    }
+    return { size: count + 8, path };
+  });
+  return (
+    <svg
+      class="qr-code"
+      viewBox={`0 0 ${drawing().size} ${drawing().size}`}
+      role="img"
+      aria-label={props.label}
+      shape-rendering="crispEdges"
+    >
+      <rect width="100%" height="100%" fill="#fff" />
+      <path d={drawing().path} fill="#000" />
+    </svg>
+  );
+}
+
+/** On a television: sign in by scanning a QR code with a phone. */
+function TvSignIn() {
+  onMount(() => void startTvSignIn());
+  onCleanup(stopTvSignIn);
+  return (
+    <>
+      <h2 id="gate-title">{t("account.tvTitle")}</h2>
+      <p>{t("account.tvText")}</p>
+      <Show when={signInLink()} fallback={<State spinner>{t("account.tvPreparing")}</State>}>
+        {(link) => <QrCode text={link()} label={t("account.tvCode")} />}
+      </Show>
+      <p class="dialog-note">{t("account.tvWaiting")}</p>
+    </>
+  );
+}
+
+/** The apps' and televisions' first screen until the viewer has signed in. */
 export function SignInGate() {
   let button: HTMLButtonElement | undefined;
   onMount(() => button?.focus());
@@ -227,24 +277,34 @@ export function SignInGate() {
             </>
           }
         >
-          <h2 id="gate-title">{t("account.gateTitle")}</h2>
-          <p>{t("account.gateText")}</p>
-          <Show when={canSignIn()} fallback={<p class="dialog-note">{t("account.notSetUp")}</p>}>
-            <Show
-              when={!signingIn()}
-              fallback={
-                <>
-                  <State spinner>{t("account.waiting")}</State>
-                  <button class="btn btn-ghost" onClick={cancelSignIn}>
-                    {t("account.cancel")}
-                  </button>
-                </>
-              }
-            >
-              <button class="btn btn-primary google-btn" ref={button} onClick={() => void signIn()}>
-                <GoogleMark />
-                {t("account.signInGoogle")}
-              </button>
+          <Show
+            when={canSignIn()}
+            fallback={
+              <>
+                <h2 id="gate-title">{t("account.gateTitle")}</h2>
+                <p class="dialog-note">{t("account.notSetUp")}</p>
+              </>
+            }
+          >
+            <Show when={!isTv} fallback={<TvSignIn />}>
+              <h2 id="gate-title">{t("account.gateTitle")}</h2>
+              <p>{t("account.gateText")}</p>
+              <Show
+                when={!signingIn()}
+                fallback={
+                  <>
+                    <State spinner>{t("account.waiting")}</State>
+                    <button class="btn btn-ghost" onClick={cancelSignIn}>
+                      {t("account.cancel")}
+                    </button>
+                  </>
+                }
+              >
+                <button class="btn btn-primary google-btn" ref={button} onClick={() => void signIn()}>
+                  <GoogleMark />
+                  {t("account.signInGoogle")}
+                </button>
+              </Show>
             </Show>
           </Show>
         </Show>

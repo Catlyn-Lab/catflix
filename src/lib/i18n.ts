@@ -204,6 +204,11 @@ const en = {
   "account.offlineHint": "Check your connection and try again.",
   "account.notSetUp": "Sign-in is not available yet. Please try again later.",
   "account.synced": "Synced with your account",
+  "account.tvTitle": "Sign in with your phone",
+  "account.tvText": "Scan the code with your phone's camera and continue with Google.",
+  "account.tvWaiting": "Catflix opens here by itself once you have signed in.",
+  "account.tvPreparing": "Preparing your sign-in code…",
+  "account.tvCode": "QR code to sign in to Catflix",
 
   "history.title": "History",
   "history.emptyTitle": "Nothing watched yet",
@@ -438,6 +443,11 @@ const id: Record<Phrase, string> = {
   "account.offlineHint": "Periksa koneksi Anda lalu coba lagi.",
   "account.notSetUp": "Fitur masuk belum tersedia. Silakan coba lagi nanti.",
   "account.synced": "Tersinkron dengan akun Anda",
+  "account.tvTitle": "Masuk dengan ponsel Anda",
+  "account.tvText": "Pindai kode ini dengan kamera ponsel Anda, lalu lanjutkan dengan Google.",
+  "account.tvWaiting": "Catflix akan terbuka di sini dengan sendirinya setelah Anda masuk.",
+  "account.tvPreparing": "Menyiapkan kode masuk Anda…",
+  "account.tvCode": "Kode QR untuk masuk ke Catflix",
 
   "history.title": "Riwayat",
   "history.emptyTitle": "Belum ada yang ditonton",

@@ -2057,6 +2057,15 @@ html[data-device="touch"] .desk {
   color: #fff;
 }
 
+/* The television sign-in code: big enough to scan from the sofa, with a white quiet zone. */
+.qr-code {
+  display: block;
+  width: min(14rem, 60vw);
+  height: auto;
+  margin: 1.25rem auto 0.5rem;
+  border-radius: 0.75rem;
+}
+
 /* ---------- language question ---------- */
 
 .dialog-scrim {
