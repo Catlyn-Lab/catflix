@@ -1,0 +1,31 @@
+[package]
+name = "catflix"
+version = "0.1.0"
+description = "Catflix — a clean, ad-free streaming app"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "catflix_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "charset", "http2"] }
+url = "2"
+tokio = { version = "1", features = ["sync"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
