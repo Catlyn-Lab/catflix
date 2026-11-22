@@ -1,6 +1,6 @@
 /** "Create subtitle": pick a source subtitle, a language, the translator or AI (with a tone). */
 
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import type { Subtitle } from "../lib/api";
 import { account, canSignIn, signIn } from "../lib/account";
 import { language, t, type Phrase } from "../lib/i18n";
@@ -17,6 +17,8 @@ const TONE_LABEL: Record<Tone, Phrase> = {
 export default function SubtitleMaker(props: {
   /** The title's own subtitles (generated ones are not offered as a source). */
   sources: Subtitle[];
+  /** Every subtitle the title has now, its own and generated: their languages can't be made again. */
+  all: Subtitle[];
   sourceName: (entry: Subtitle) => string;
   onCreated: (entry: Generated) => void;
   onBack: () => void;
@@ -32,7 +34,25 @@ export default function SubtitleMaker(props: {
     ),
   );
   const [source, setSource] = createSignal(english);
-  const [target, setTarget] = createSignal(language() === "id" ? "id" : "en");
+  /** A language the title already has, as its own subtitle or one made earlier. */
+  const taken = (code: string, name: string) => {
+    const base = code.toLowerCase().split("-")[0];
+    const named = new RegExp(`\\b${name.split(" ")[0]}\\b`, "i");
+    return props.all.some((entry) => {
+      if (entry.generated) return entry.lang === code;
+      const lang = (entry.lang ?? "").toLowerCase();
+      return lang === code.toLowerCase() || lang.split(/[-_]/)[0] === base || named.test(entry.label ?? "");
+    });
+  };
+  const free = () => (options()?.languages ?? []).filter((entry) => !taken(entry.code, entry.name));
+  const [target, setTarget] = createSignal("");
+  // Once the languages are known, start on the viewer's own language if it is still missing.
+  createEffect(() => {
+    const open = free();
+    if (open.some((entry) => entry.code === target())) return;
+    const own = language() === "id" ? "id" : "en";
+    setTarget((open.find((entry) => entry.code === own) ?? open[0])?.code ?? "");
+  });
   const [method, setMethod] = createSignal<"translate" | "ai">("translate");
   const [tone, setTone] = createSignal<Tone>("casual");
   const [custom, setCustom] = createSignal("");
@@ -57,6 +77,7 @@ export default function SubtitleMaker(props: {
         sourceUrl: chosen.url,
         sourceLabel: props.sourceName(chosen),
         targetLang: target(),
+        titleSources: props.all.map((entry) => entry.url),
         method: method(),
         tone: method() === "ai" ? tone() : undefined,
         customTone: method() === "ai" && tone() === "custom" ? custom() : undefined,
@@ -86,7 +107,15 @@ export default function SubtitleMaker(props: {
         <span>{t("maker.into")}</span>
         <select value={target()} onChange={(event) => setTarget(event.currentTarget.value)}>
           <For each={options()?.languages ?? []}>
-            {(entry) => <option value={entry.code}>{entry.name}</option>}
+            {(entry) => (
+              <option
+                value={entry.code}
+                selected={entry.code === target()}
+                disabled={taken(entry.code, entry.name)}
+              >
+                {taken(entry.code, entry.name) ? t("maker.available", { language: entry.name }) : entry.name}
+              </option>
+            )}
           </For>
         </select>
       </label>
@@ -157,7 +186,10 @@ export default function SubtitleMaker(props: {
         <button
           class="btn btn-primary"
           disabled={
-            busy() || !props.sources.length || (method() === "ai" && tone() === "custom" && !custom().trim())
+            busy() ||
+            !props.sources.length ||
+            !target() ||
+            (method() === "ai" && tone() === "custom" && !custom().trim())
           }
           onClick={() => void create()}
         >

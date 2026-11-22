@@ -36,11 +36,20 @@ export async function createSubtitle(request: {
   sourceUrl: string;
   sourceLabel?: string;
   targetLang: string;
+  /** All of the title's subtitle files: a language already made from any of them is refused. */
+  titleSources?: string[];
   method: "translate" | "ai";
   tone?: Tone;
   customTone?: string;
 }) {
-  return json<Generated>(await call("/subtitles", { method: "POST", body: JSON.stringify(request) }));
+  const response = await call("/subtitles", { method: "POST", body: JSON.stringify(request) });
+  // The title already has this language (someone made it meanwhile): use that one.
+  if (response.status === 409) {
+    const payload = (await response.json().catch(() => ({}))) as { existing?: Generated; error?: string };
+    if (payload.existing) return payload.existing;
+    throw new Error(payload.error ?? "this language already exists");
+  }
+  return json<Generated>(response);
 }
 
 /** As a player subtitle entry. */

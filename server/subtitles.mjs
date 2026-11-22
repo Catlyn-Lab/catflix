@@ -1,6 +1,7 @@
 // Generated subtitles: a title's existing subtitle, translated into another language by the
 // machine translator or by AI in a chosen tone. Results are shared by everyone and kept in the
-// database, so each (source, language, method, tone) is made once.
+// database. A title gets one subtitle per language, whichever way it was made, so the same
+// language is never made twice (from any of the title's subtitle files).
 import crypto from "node:crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
@@ -143,11 +144,17 @@ async function run(id, cues, row) {
   }
 }
 
+const authorName = db.prepare("SELECT name FROM users WHERE id = ?");
+
+/** "Indonesian (Arif Translated)", "Indonesian (Arif AI · Casual)"; without a name for guests. */
 const label = (row) => {
   const language = languageName(row.target_lang);
-  if (row.method === "translate") return `${language} · Translated`;
-  const tone = row.tone.startsWith("custom:") ? "Custom" : row.tone[0].toUpperCase() + row.tone.slice(1);
-  return `${language} · AI ${tone}`;
+  const author = row.created_by ? String(authorName.get(row.created_by)?.name ?? "").split(/\s+/)[0] : "";
+  const how =
+    row.method === "translate"
+      ? "Translated"
+      : `AI · ${row.tone.startsWith("custom:") ? "Custom" : row.tone[0].toUpperCase() + row.tone.slice(1)}`;
+  return `${language} (${author ? `${author} ` : ""}${how})`;
 };
 
 const describe = (row) => ({
@@ -214,12 +221,26 @@ export async function handleSubtitles(req, res, url, user) {
     }
 
     const hash = sha(sourceUrl);
-    const existing = db
+    // One subtitle per language per title: look across all of the title's subtitle files.
+    const hashes = [
+      hash,
+      ...(Array.isArray(body.titleSources) ? body.titleSources : [])
+        .filter((entry) => typeof entry === "string")
+        .slice(0, 50)
+        .map(sha),
+    ];
+    const made = db
       .prepare(
-        "SELECT * FROM subtitles WHERE source_hash = ? AND target_lang = ? AND method = ? AND tone = ?",
+        `SELECT * FROM subtitles WHERE source_hash IN (${hashes.map(() => "?").join(",")}) AND target_lang = ? ORDER BY status = 'failed', id`,
       )
-      .get(hash, target, method, tone);
-    if (existing && existing.status !== "failed") return send(res, 200, describe(existing));
+      .all(...hashes, target);
+    const ready = made.find((row) => row.status !== "failed");
+    if (ready) {
+      return send(res, 409, {
+        error: `this title already has a ${languageName(target)} subtitle`,
+        existing: describe(ready),
+      });
+    }
 
     const key = user ? `user:${user.id}` : `ip:${clientIp(req)}`;
     if (!allow(`subtitle:${key}`, user ? 30 : config.guestJobsPerHour, 60 * 60_000)) {
@@ -253,7 +274,8 @@ export async function handleSubtitles(req, res, url, user) {
     }
 
     const now = Date.now();
-    if (existing) db.prepare("DELETE FROM subtitles WHERE id = ?").run(existing.id);
+    // Earlier attempts at this language failed: make room for the new one.
+    for (const row of made) db.prepare("DELETE FROM subtitles WHERE id = ?").run(row.id);
     const { lastInsertRowid } = db
       .prepare(
         `INSERT INTO subtitles (source_hash, source_url, source_label, target_lang, method, tone, status, cues_total, cues_json, model, created_by, created_at, updated_at)
