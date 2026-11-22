@@ -60,7 +60,7 @@ const MIGRATIONS = [
     updated_at  INTEGER NOT NULL
   );
 
-  -- Generated subtitles are shared: the first viewer to ask pays, everyone after gets it cached.
+  -- Generated subtitles are shared with everyone who watches the same file.
   CREATE TABLE subtitles (
     id           INTEGER PRIMARY KEY,
     source_hash  TEXT NOT NULL,
@@ -88,6 +88,33 @@ const MIGRATIONS = [
     characters  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, day)
   );
+  `,
+  // 2: each viewer may make their own subtitle in a language (all guests together count as one).
+  `
+  CREATE TABLE subtitles_new (
+    id           INTEGER PRIMARY KEY,
+    source_hash  TEXT NOT NULL,
+    source_url   TEXT NOT NULL,
+    source_label TEXT,
+    target_lang  TEXT NOT NULL,
+    method       TEXT NOT NULL CHECK (method IN ('translate', 'ai')),
+    tone         TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL CHECK (status IN ('working', 'ready', 'failed')),
+    cues_done    INTEGER NOT NULL DEFAULT 0,
+    cues_total   INTEGER NOT NULL DEFAULT 0,
+    cues_json    TEXT,
+    error        TEXT,
+    model        TEXT,
+    created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+  );
+  INSERT INTO subtitles_new SELECT * FROM subtitles;
+  DROP TABLE subtitles;
+  ALTER TABLE subtitles_new RENAME TO subtitles;
+  CREATE INDEX subtitles_source ON subtitles(source_hash);
+  CREATE UNIQUE INDEX subtitles_one_each
+    ON subtitles(source_hash, target_lang, method, tone, IFNULL(created_by, 0));
   `,
 ];
 
