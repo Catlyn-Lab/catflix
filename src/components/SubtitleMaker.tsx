@@ -34,27 +34,50 @@ export default function SubtitleMaker(props: {
     ),
   );
   const [source, setSource] = createSignal(english);
-  /** A language the title already has, as its own subtitle or one made earlier. */
-  const taken = (code: string, name: string) => {
+  const [method, setMethod] = createSignal<"translate" | "ai">("translate");
+  const [tone, setTone] = createSignal<Tone>("casual");
+
+  /** The title has its own subtitle in this language. */
+  const own = (code: string, name: string) => {
     const base = code.toLowerCase().split("-")[0];
     const named = new RegExp(`\\b${name.split(" ")[0]}\\b`, "i");
     return props.all.some((entry) => {
-      if (entry.generated) return entry.lang === code;
+      if (entry.generated) return false;
       const lang = (entry.lang ?? "").toLowerCase();
       return lang === code.toLowerCase() || lang.split(/[-_]/)[0] === base || named.test(entry.label ?? "");
     });
   };
+  /** A subtitle was already made in this language this way (and, for AI, in this tone). */
+  const made = (code: string, how: "translate" | "ai", withTone?: Tone) =>
+    props.all.some(
+      (entry) =>
+        entry.generated &&
+        entry.lang === code &&
+        entry.generated.method === how &&
+        (how === "translate" || entry.generated.tone === withTone),
+    );
+  /**
+   * One translator subtitle per language (none where the title has its own), and one AI subtitle
+   * per language and tone: with AI only the tones already made are closed.
+   */
+  const taken = (code: string, name: string) =>
+    method() === "translate" && (own(code, name) || made(code, "translate"));
+  const toneTaken = (entry: Tone) => entry !== "custom" && made(target(), "ai", entry);
+
   const free = () => (options()?.languages ?? []).filter((entry) => !taken(entry.code, entry.name));
   const [target, setTarget] = createSignal("");
-  // Once the languages are known, start on the viewer's own language if it is still missing.
+  // Once the languages are known, start on the viewer's own language if it is still open.
   createEffect(() => {
     const open = free();
     if (open.some((entry) => entry.code === target())) return;
-    const own = language() === "id" ? "id" : "en";
-    setTarget((open.find((entry) => entry.code === own) ?? open[0])?.code ?? "");
+    const mine = language() === "id" ? "id" : "en";
+    setTarget((open.find((entry) => entry.code === mine) ?? open[0])?.code ?? "");
   });
-  const [method, setMethod] = createSignal<"translate" | "ai">("translate");
-  const [tone, setTone] = createSignal<Tone>("casual");
+  // Move off a tone that already exists for the chosen language.
+  createEffect(() => {
+    if (method() !== "ai" || !toneTaken(tone())) return;
+    setTone((options()?.tones ?? []).find((entry) => !toneTaken(entry)) ?? "custom");
+  });
   const [custom, setCustom] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal("");
@@ -155,6 +178,8 @@ export default function SubtitleMaker(props: {
                   role="radio"
                   aria-checked={tone() === entry}
                   data-active={tone() === entry || undefined}
+                  disabled={toneTaken(entry)}
+                  title={toneTaken(entry) ? t("maker.toneMade") : undefined}
                   onClick={() => setTone(entry)}
                 >
                   {t(TONE_LABEL[entry])}

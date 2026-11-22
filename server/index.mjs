@@ -151,6 +151,7 @@ async function route(req, res) {
 http
   .createServer((req, res) => {
     route(req, res).catch((error) => {
+      if (error.status) return void (!res.headersSent && fail(res, error.status, error.message));
       console.error(req.method, req.url, error);
       if (!res.headersSent) fail(res, 500, "something went wrong");
       else res.destroy();

@@ -14,6 +14,8 @@ export type Generated = {
   id: number;
   sourceUrl: string;
   targetLang: string;
+  method: "translate" | "ai";
+  tone: string;
   label: string;
   status: "working" | "ready" | "failed";
   cuesDone: number;
@@ -57,7 +59,14 @@ export const asSubtitle = (entry: Generated): Subtitle => ({
   url: entry.url,
   label: entry.label,
   lang: entry.targetLang,
-  generated: { id: entry.id, status: entry.status, done: entry.cuesDone, total: entry.cuesTotal },
+  generated: {
+    id: entry.id,
+    status: entry.status,
+    done: entry.cuesDone,
+    total: entry.cuesTotal,
+    method: entry.method,
+    tone: entry.tone,
+  },
 });
 
 /** Subtitles already made from any of these source files, by anyone. */

@@ -192,7 +192,14 @@ export type Subtitle = {
   language?: string;
   format?: string;
   /** A subtitle Catflix made from another one (see `subtitles.ts`). */
-  generated?: { id: number; status: "working" | "ready" | "failed"; done: number; total: number };
+  generated?: {
+    id: number;
+    status: "working" | "ready" | "failed";
+    done: number;
+    total: number;
+    method: "translate" | "ai";
+    tone: string;
+  };
 };
 
 export type Streams = {

@@ -1,7 +1,7 @@
 // Generated subtitles: a title's existing subtitle, translated into another language by the
 // machine translator or by AI in a chosen tone. Results are shared by everyone and kept in the
-// database. A title gets one subtitle per language, whichever way it was made, so the same
-// language is never made twice (from any of the title's subtitle files).
+// database. A title gets one translator subtitle per language and one AI subtitle per language
+// and tone, never made twice (from any of the title's subtitle files).
 import crypto from "node:crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
@@ -31,7 +31,7 @@ export const LANGUAGES = [
   "ru",
 ];
 
-const BATCH = { translate: 40, ai: 30 };
+const BATCH = { translate: 40, ai: 20 };
 const MAX_SOURCE = 3 * 1024 * 1024;
 const today = () => new Date().toISOString().slice(0, 10);
 const sha = (value) => crypto.createHash("sha256").update(value).digest("hex");
@@ -121,23 +121,39 @@ const finish = db.prepare("UPDATE subtitles SET status = ?, error = ?, updated_a
 
 async function run(id, cues, row) {
   const size = BATCH[row.method];
-  try {
-    for (let from = 0; from < cues.length; from += size) {
-      const batch = cues.slice(from, from + size);
-      const lines = batch.map((cue) => cue.source);
-      const done =
-        row.method === "ai"
-          ? await translateWithAi(
-              lines,
-              cues.slice(Math.max(0, from - 6), from).map((cue) => cue.text),
-              row.target_lang,
-              row.tone.startsWith("custom:") ? "custom" : row.tone,
-              row.tone.slice(7),
-            )
-          : await translateLines(lines, row.target_lang);
-      batch.forEach((cue, index) => (cue.text = done[index].trim() || cue.source));
-      save.run(JSON.stringify(cues), Math.min(from + size, cues.length), Date.now(), id);
+  const batches = [];
+  for (let from = 0; from < cues.length; from += size) batches.push(from);
+  const translate = async (from) => {
+    const batch = cues.slice(from, from + size);
+    const lines = batch.map((cue) => cue.source);
+    const done =
+      row.method === "ai"
+        ? await translateWithAi(
+            lines,
+            cues.slice(Math.max(0, from - 4), from).map((cue) => cue.source),
+            row.target_lang,
+            row.tone.startsWith("custom:") ? "custom" : row.tone,
+            row.tone.slice(7),
+          )
+        : await translateLines(lines, row.target_lang);
+    batch.forEach((cue, index) => (cue.text = done[index].trim() || cue.source));
+    save.run(JSON.stringify(cues), cues.filter((cue) => cue.text).length, Date.now(), id);
+  };
+  // AI is slow per request, so several batches run at once; workers take them in order, so the
+  // start of the film is ready first. The translator is quick and goes one batch at a time.
+  let next = 0;
+  let stopped = false;
+  const worker = async () => {
+    try {
+      while (!stopped && next < batches.length) await translate(batches[next++]);
+    } catch (error) {
+      stopped = true;
+      throw error;
     }
+  };
+  try {
+    const workers = row.method === "ai" ? config.ai.concurrency : 1;
+    await Promise.all(Array.from({ length: Math.min(workers, batches.length) }, worker));
     finish.run("ready", null, Date.now(), id);
   } catch (error) {
     finish.run("failed", String(error.message ?? error).slice(0, 300), Date.now(), id);
@@ -221,7 +237,7 @@ export async function handleSubtitles(req, res, url, user) {
     }
 
     const hash = sha(sourceUrl);
-    // One subtitle per language per title: look across all of the title's subtitle files.
+    // Not twice per title (same language, method and tone), across all of its subtitle files.
     const hashes = [
       hash,
       ...(Array.isArray(body.titleSources) ? body.titleSources : [])
@@ -231,13 +247,16 @@ export async function handleSubtitles(req, res, url, user) {
     ];
     const made = db
       .prepare(
-        `SELECT * FROM subtitles WHERE source_hash IN (${hashes.map(() => "?").join(",")}) AND target_lang = ? ORDER BY status = 'failed', id`,
+        `SELECT * FROM subtitles WHERE source_hash IN (${hashes.map(() => "?").join(",")}) AND target_lang = ? AND method = ? AND tone = ? ORDER BY status = 'failed', id`,
       )
-      .all(...hashes, target);
+      .all(...hashes, target, method, tone);
     const ready = made.find((row) => row.status !== "failed");
     if (ready) {
       return send(res, 409, {
-        error: `this title already has a ${languageName(target)} subtitle`,
+        error:
+          method === "ai"
+            ? `this title already has a ${languageName(target)} AI subtitle in that tone`
+            : `this title already has a ${languageName(target)} subtitle`,
         existing: describe(ready),
       });
     }
@@ -260,6 +279,12 @@ export async function handleSubtitles(req, res, url, user) {
       const used =
         db.prepare("SELECT characters FROM ai_usage WHERE user_id = ? AND day = ?").get(user.id, today())
           ?.characters ?? 0;
+      const everyone =
+        db.prepare("SELECT COALESCE(SUM(characters), 0) AS total FROM ai_usage WHERE day = ?").get(today())
+          .total ?? 0;
+      if (everyone + characters > config.ai.globalDailyCharacters) {
+        return fail(res, 429, "AI subtitles are busy today, try the translator or come back tomorrow");
+      }
       if (used + characters > config.ai.dailyCharacters) {
         return fail(
           res,
