@@ -10,7 +10,7 @@ import {
   type MediaType,
 } from "../lib/api";
 import { animeDetails, animeEpisodes, dramaDetails, dramaEpisodes } from "../lib/sources";
-import { getProgress } from "../lib/store";
+import { getProgress, lastEpisode } from "../lib/store";
 import { genreName, language, seasonName, t } from "../lib/i18n";
 import { Card, Empty, Play, Star, State, Translated } from "../components/ui";
 
@@ -53,8 +53,30 @@ export default function Detail(props: Props) {
       { defer: true },
     ),
   );
+  // The player keeps one record per episode, keyed by series, season and episode number; anime
+  // and dramas carry their catalogue in front of the id.
+  const series = () => (props.type === "anime" || props.type === "drama" ? `${props.type}:` : "") + props.id;
+  /** The episode watched last, on whichever season. */
+  const lastSeen = createMemo(() => (props.type === "movie" ? null : lastEpisode(series())));
+
+  /** The season to open on: where the viewer left off, or the one after a finished season. */
+  const resumeSeason = () => {
+    const seen = lastSeen();
+    if (!seen) return null;
+    const seasons = (current()?.seasons ?? []).filter((entry) => entry.season_number > 0);
+    if (!seasons.length) return seen.season;
+    const own = seasons.find((entry) => entry.season_number === seen.season);
+    if (!own) return null;
+    const following = seasons.find((entry) => entry.season_number === seen.season + 1);
+    const seasonDone = seen.finished && Boolean(own.episode_count) && seen.episode >= own.episode_count!;
+    return seasonDone && following ? following.season_number : seen.season;
+  };
+
   const seasonNumber = () =>
-    activeSeason() ?? current()?.seasons?.find((entry) => entry.season_number > 0)?.season_number ?? 1;
+    activeSeason() ??
+    resumeSeason() ??
+    current()?.seasons?.find((entry) => entry.season_number > 0)?.season_number ??
+    1;
 
   const [episodesList] = createResource(
     () =>
@@ -80,13 +102,27 @@ export default function Detail(props: Props) {
     ].filter(Boolean) as string[];
   });
 
-  // The player keeps one record per episode, keyed by series, season and episode number.
   const watchedEpisode = (episode: Episode) =>
-    getProgress("episode", `${props.id}:${episode.season_number}:${episode.episode_number}`);
+    getProgress("episode", `${series()}:${episode.season_number}:${episode.episode_number}`);
   const watchedFilm = () => (props.type === "movie" ? getProgress("movie", props.id) : null);
 
-  const started = () => (episodesList() ?? []).find((episode) => watchedEpisode(episode));
-  const nextUp = () => started() ?? (episodesList() ?? [])[0];
+  /** What the main button plays: the episode watched last, or the one after it once that is finished. */
+  const nextUp = () => {
+    const list = episodesList() ?? [];
+    const seen = lastSeen();
+    const at = seen
+      ? list.findIndex(
+          (episode) => episode.season_number === seen.season && episode.episode_number === seen.episode,
+        )
+      : -1;
+    if (at < 0) return list[0];
+    return (seen!.finished ? list[at + 1] : undefined) ?? list[at];
+  };
+  /** That episode was left part-way, so the button resumes it. */
+  const started = () => {
+    const target = nextUp();
+    return target ? watchedEpisode(target) : null;
+  };
 
   const play = (episode?: Episode) => {
     if (props.type === "movie") return void navigate(`/watch/movie/${props.id}`);

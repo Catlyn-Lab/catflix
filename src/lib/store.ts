@@ -106,6 +106,28 @@ export function clearProgress(type: string, id: string) {
   notify({ kind: "progress", key: key(type, id), record: null, updatedAt: Date.now() });
 }
 
+/**
+ * The episode of a series that was watched last, on any season. `series` is the series id, with
+ * `anime:` or `drama:` in front for those catalogues (as in the record keys).
+ */
+export function lastEpisode(series: string) {
+  revision();
+  const prefix = `episode:${series}:`;
+  let latest: { season: number; episode: number; finished: boolean; updatedAt: number } | null = null;
+  for (const [compound, record] of Object.entries(read<WatchMap>(WATCH_KEY, {}))) {
+    if (!compound.startsWith(prefix) || record.updatedAt <= (latest?.updatedAt ?? 0)) continue;
+    const numbers = compound.slice(prefix.length).split(":").map(Number);
+    if (numbers.length !== 2 || !numbers.every(Number.isFinite)) continue;
+    latest = {
+      season: numbers[0],
+      episode: numbers[1],
+      finished: record.durationSeconds > 0 && record.positionSeconds > record.durationSeconds - 25,
+      updatedAt: record.updatedAt,
+    };
+  }
+  return latest;
+}
+
 /** Every local record, for the first upload after signing in. */
 export const allProgress = () => read<WatchMap>(WATCH_KEY, {});
 

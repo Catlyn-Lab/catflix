@@ -62,6 +62,10 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const SKIP = 10;
 const HIDE_AFTER = 3200;
 const NEXT_AFTER = 8;
+/** Stream links expire after a while; they are fetched again this long after the last fetch. */
+const REFRESH_AFTER = 45 * 60_000;
+/** Decoding trouble further apart than this counts as separate hiccups, not one broken source. */
+const RECOVERY_WINDOW = 30_000;
 
 const clock = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -113,7 +117,12 @@ export default function Player(props: PlayerProps) {
   const tried = new Set<string>();
   /** Where playback stood when the sources were last fetched. */
   let fetchedAt = 0;
+  /** Recoveries made on the stream itself, before its source is given up on. */
   let mediaRecoveries = 0;
+  let networkRecoveries = 0;
+  /** When the last decoding recovery was made, on the page's clock. */
+  let recoveredAt = 0;
+  let retryTimer = 0;
 
   const [stage, setStage] = createSignal<"loading" | "ready" | "error" | "ended">("loading");
   const [message, setMessage] = createSignal("");
@@ -214,6 +223,7 @@ export default function Player(props: PlayerProps) {
   /* ---- stream ---- */
 
   const destroyStream = () => {
+    clearTimeout(retryTimer);
     if (hls) {
       hls.destroy();
       hls = null;
@@ -287,6 +297,7 @@ export default function Player(props: PlayerProps) {
     destroyStream();
     setSource(chosen);
     mediaRecoveries = 0;
+    networkRecoveries = 0;
     setLevels([]);
     setLevel(-1);
     setAutoHeight(0);
@@ -297,8 +308,11 @@ export default function Player(props: PlayerProps) {
     // hls.js only for playlists; a plain MP4 file goes straight to the video element.
     const isPlaylist = chosen.type === "hls" || /\.m3u8(\?|$)/i.test(chosen.url);
     if (isPlaylist && Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true, maxBufferLength: 40, backBufferLength: 30 });
+      const stream = new Hls({ enableWorker: true, maxBufferLength: 40, backBufferLength: 30 });
+      hls = stream;
+      let parsed = false;
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        parsed = true;
         setLevels(
           (hls?.levels ?? [])
             .map((entry, index) => ({ index, height: entry.height }))
@@ -314,12 +328,32 @@ export default function Player(props: PlayerProps) {
         setLevel(hls.autoLevelEnabled ? -1 : data.level);
         setAutoHeight(hls.levels[data.level]?.height ?? 0);
       });
+      // Segments are arriving again: the connection trouble is over.
+      hls.on(Hls.Events.FRAG_BUFFERED, (_event, data) => {
+        if (data.frag.type === "main") networkRecoveries = 0;
+      });
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal) return;
-        // A decoding hiccup is worth two recoveries; after that the source counts as broken.
-        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries < 2) {
-          mediaRecoveries++;
-          hls?.recoverMediaError();
+        if (!data.fatal || hls !== stream) return;
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          // A decoding hiccup or a stuck picture is worth two recoveries in a row; after that the
+          // source counts as broken. Ones far apart are separate hiccups (a television playing
+          // full quality has them now and then), each recovered where the film stands.
+          const now = performance.now();
+          if (now - recoveredAt > RECOVERY_WINDOW) mediaRecoveries = 0;
+          if (mediaRecoveries < 2) {
+            mediaRecoveries++;
+            recoveredAt = now;
+            stream.recoverMediaError();
+            return;
+          }
+        } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR && parsed && networkRecoveries < 2) {
+          // The stream was playing and one request failed for good (a refused or blocked request
+          // is not retried by the stream itself): ask again, twice, before leaving the source.
+          networkRecoveries++;
+          clearTimeout(retryTimer);
+          retryTimer = window.setTimeout(() => {
+            if (hls === stream) stream.startLoad();
+          }, networkRecoveries * 1500);
           return;
         }
         giveUpOn(chosen, video?.currentTime || from);
@@ -502,6 +536,12 @@ export default function Player(props: PlayerProps) {
       fetchedAt = from;
       setPayload(fresh);
       play(usable[0], from);
+      // Refresh ahead of the links expiring, counted from this fetch: an episode that started
+      // later in the same player has fresh links of its own and must not be interrupted.
+      clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => {
+        if (stage() === "ready" && video.currentTime > 0) void refetch(video.currentTime);
+      }, REFRESH_AFTER);
       const own = (fresh.subtitles ?? []).filter((entry) => entry.url);
       // Waited for briefly: the drama's own subtitles are used when nothing comes back in time.
       const found = await Promise.race([
@@ -1039,17 +1079,12 @@ export default function Player(props: PlayerProps) {
       const list = cues();
       setCaption(list.length ? cueAt(list, video.currentTime - shift()) : "");
     }, 120);
-
-    // Sources expire after a while; refresh ahead of the stall.
-    pollTimer = window.setInterval(() => {
-      if (stage() === "ready" && video.currentTime > 0) void refetch(video.currentTime);
-    }, 45 * 60_000);
   });
 
   onCleanup(() => {
     clearInterval(heartbeat);
     clearInterval(ticker);
-    clearInterval(pollTimer);
+    clearTimeout(pollTimer);
     clearInterval(captionTicker);
     clearInterval(countdownTimer);
     clearTimeout(idleTimer);
